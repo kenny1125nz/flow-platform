@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import type { FlowDefinition, FlowNode, HumanNode, NodeRun, StepType } from '@shared/model';
 import type { FlowRunDetail, HumanRespondBody } from '@shared/api-types';
 import { rendererRegistry } from '../renderers';
-import { collectFlowCards, displayStatus, flowDisplayStatus, summaryOf, timingOf } from './card-utils';
+import { collectFlowCards, displayStatus, flowDisplayStatus, formatTokens, summaryOf, timingOf, tokenBreakdown } from './card-utils';
 import { DefinitionDiagram } from './DefinitionDiagram';
 import { JsonBlock } from './JsonBlock';
 import { StatusBadge } from './StatusBadge';
@@ -206,6 +206,7 @@ export function OperationModal({
                     <th>Stage</th>
                     <th>Status</th>
                     <th>Elapsed</th>
+                    <th>Tokens</th>
                     <th>Outcome</th>
                   </tr>
                 </thead>
@@ -219,6 +220,13 @@ export function OperationModal({
                         <StatusBadge status={displayStatus(step)} />
                       </td>
                       <td className="muted">{timingOf(step, now)}</td>
+                      <td className="muted">
+                        {step.type === 'agent' && step.usage ? (
+                          <span title={tokenBreakdown(step.usage)}>{formatTokens(step.usage)}</span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                       <td>
                         {step.label ? <span className="card-label">{step.label}</span> : null}
                         {step.error ? <span className="error-text">{step.error.code}</span> : null}

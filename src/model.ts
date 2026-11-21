@@ -21,6 +21,16 @@ export type Outcome = {
   metrics?: Record<string, unknown>;
 };
 
+// Token/cost usage reported by an agent step.
+export type TokenUsage = {
+  input: number;
+  output: number;
+  reasoning?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: number;
+};
+
 export type FlowError = {
   code: string;
   message?: string;
@@ -92,6 +102,7 @@ export type NodeRun = {
   label?: string;
   error?: FlowError;
   output?: unknown;
+  usage?: TokenUsage;
   startedAt?: string;
   finishedAt?: string;
 };
@@ -101,6 +112,7 @@ export type RunResult = {
   label?: string;
   error?: FlowError;
   output?: unknown;
+  usage?: TokenUsage;
 };
 
 export interface FlowInstance {

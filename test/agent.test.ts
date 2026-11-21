@@ -8,10 +8,18 @@ import type { AgentNode } from '../src/model.js';
 
 const node: AgentNode = { id: 'agent', type: 'agent', instruction: 'do work' };
 
-test('parses a structured result from the opencode output', async () => {
+test('parses a structured result and token usage from the opencode output', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'flow-agent-'));
   const bin = path.join(dir, 'fake-opencode');
-  await writeFile(bin, '#!/bin/sh\necho \'{"outcome":"succeeded","label":"ok"}\'\n');
+  await writeFile(
+    bin,
+    [
+      '#!/bin/sh',
+      "printf '%s\\n' '{\"type\":\"text\",\"part\":{\"text\":\"{\\\"outcome\\\":\\\"succeeded\\\",\\\"label\\\":\\\"ok\\\"}\"}}'",
+      "printf '%s\\n' '{\"type\":\"step_finish\",\"part\":{\"tokens\":{\"input\":10,\"output\":5,\"reasoning\":3,\"cache\":{\"read\":4,\"write\":0}}},\"cost\":0.01}'",
+      '',
+    ].join('\n'),
+  );
   await chmod(bin, 0o755);
 
   try {
@@ -20,6 +28,14 @@ test('parses a structured result from the opencode output', async () => {
 
     assert.equal(result.outcome.status, 'succeeded');
     assert.equal(result.label, 'ok');
+    assert.deepEqual(result.usage, {
+      input: 10,
+      output: 5,
+      reasoning: 3,
+      cacheRead: 4,
+      cacheWrite: 0,
+      cost: 0.01,
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

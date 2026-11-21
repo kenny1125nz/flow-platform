@@ -1,4 +1,4 @@
-import type { FlowDefinition, FlowNode, NodeRun, OutcomeStatus, StepType, UnitStatus } from '@shared/model';
+import type { FlowDefinition, FlowNode, NodeRun, OutcomeStatus, StepType, TokenUsage, UnitStatus } from '@shared/model';
 import type { FlowRunDetail } from '@shared/api-types';
 
 export function displayStatus(run: NodeRun): UnitStatus | OutcomeStatus {
@@ -33,6 +33,34 @@ export function formatDuration(ms: number): string {
     return `${(ms / 1000).toFixed(1)} s`;
   }
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+export function formatTokens(usage?: TokenUsage): string {
+  if (!usage) {
+    return '';
+  }
+  const total = usage.input + usage.output;
+  return formatCount(total);
+}
+
+export function tokenBreakdown(usage?: TokenUsage): string {
+  if (!usage) {
+    return '';
+  }
+  const cost = usage.cost === undefined ? '' : ` · $${usage.cost.toFixed(4)}`;
+  return `input ${formatCount(usage.input)} · output ${formatCount(usage.output)}` +
+    `${usage.reasoning ? ` · reasoning ${formatCount(usage.reasoning)}` : ''}` +
+    `${usage.cacheRead ? ` · cache ${formatCount(usage.cacheRead)}` : ''}${cost}`;
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(1)}M`;
+  }
+  if (n >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}K`;
+  }
+  return String(n);
 }
 
 export type FlowCardBase = {

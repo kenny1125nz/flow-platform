@@ -236,6 +236,7 @@ export class FlowRunner implements FlowInstance {
     run.label = outcome.label;
     run.error = outcome.error;
     run.output = outcome.output;
+    run.usage = outcome.usage;
     run.status = 'ended';
     run.finishedAt = this.now().toISOString();
     if (outcome.output !== undefined) {

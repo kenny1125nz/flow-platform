@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { AgentNode, FlowError, OutcomeStatus, RunResult } from '../model.js';
+import type { AgentNode, FlowError, OutcomeStatus, RunResult, TokenUsage } from '../model.js';
 import type { NodeContext, NodeHandler } from '../runtime.js';
 import { failed, succeeded } from '../result.js';
 
@@ -14,7 +14,7 @@ export type OpencodeAgentOptions = {
 export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): NodeHandler<AgentNode> {
   return async (node, context) => {
     const instruction = withResultInstruction(node.instruction, context, node.id);
-    const args = ['run'];
+    const args = ['run', '--format', 'json'];
 
     if (options.model) {
       args.push('--model', options.model);
@@ -31,19 +31,21 @@ export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): 
       cwd: context.context.workspace ?? options.cwd,
     });
 
-    const parsed = parseAgentResult(result.stdout);
-    if (parsed) {
-      return parsed;
+    const parsed = parseJsonStream(result.stdout);
+    if (parsed.result) {
+      return parsed.usage ? { ...parsed.result, usage: parsed.usage } : parsed.result;
     }
 
     if (result.exitCode !== 0) {
-      return failed({
+      const failure = failed({
         code: 'agent.failed',
         message: result.stderr.trim() || `opencode exited with code ${result.exitCode ?? 'unknown'}`,
       });
+      return parsed.usage ? { ...failure, usage: parsed.usage } : failure;
     }
 
-    return succeeded();
+    const success = succeeded();
+    return parsed.usage ? { ...success, usage: parsed.usage } : success;
   };
 }
 
@@ -100,6 +102,48 @@ function runOpencode(bin: string, args: string[], options: { cwd?: string }): Pr
       resolve({ stdout, stderr, exitCode });
     });
   });
+}
+
+function parseJsonStream(stdout: string): { result: RunResult | null; usage: TokenUsage | null } {
+  const textParts: string[] = [];
+  let usage: TokenUsage | null = null;
+
+  for (const line of stdout.replace(/\r\n/g, '\n').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (event.type === 'text') {
+      const part = event.part as { text?: unknown } | undefined;
+      if (typeof part?.text === 'string') {
+        textParts.push(part.text);
+      }
+    } else if (event.type === 'step_finish') {
+      const part = event.part as
+        | { tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } } }
+        | undefined;
+      const tokens = part?.tokens;
+      if (tokens || typeof event.cost === 'number') {
+        usage ??= { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+        usage.input += tokens?.input ?? 0;
+        usage.output += tokens?.output ?? 0;
+        usage.reasoning = (usage.reasoning ?? 0) + (tokens?.reasoning ?? 0);
+        usage.cacheRead = (usage.cacheRead ?? 0) + (tokens?.cache?.read ?? 0);
+        usage.cacheWrite = (usage.cacheWrite ?? 0) + (tokens?.cache?.write ?? 0);
+        usage.cost = (usage.cost ?? 0) + (typeof event.cost === 'number' ? event.cost : 0);
+      }
+    }
+  }
+
+  return { result: parseAgentResult(textParts.join('\n')), usage };
 }
 
 function parseAgentResult(stdout: string): RunResult | null {
