@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { FlowDefinition, PlanDefinition, RunResult } from '../model.js';
 import type {
   CreateFlowRunBody,
+  CreatePlanRunBody,
   DefinitionSummary,
   ErrorBody,
   HumanRespondBody,
@@ -15,6 +16,7 @@ import { PlanRunner } from '../plan-runner.js';
 import { createNodeExecutor, HumanTaskBroker, localScriptHandler, type NodeExecutor } from '../runtime.js';
 import { createOpencodeAgentHandler } from './agent.js';
 import { EventHub } from './events.js';
+import { readNodeSource } from './flows-source.js';
 import { seedDefinitions } from './seed.js';
 import { flowRunDetail, flowRunSummary, planRunDetail, planRunSummary } from './serialize.js';
 import { DefinitionStore, RunRegistry, definitionKey, type RegisteredRun } from './store.js';
@@ -49,7 +51,6 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
         model: process.env.OPENCODE_MODEL,
         agent: process.env.OPENCODE_AGENT,
         autoApprove: process.env.OPENCODE_FLOW_AUTO_APPROVE === '1',
-        timeoutMs: Number(process.env.AGENT_TIMEOUT_MS ?? 120_000),
       }),
     });
 
@@ -105,6 +106,21 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     return definition;
   });
 
+  app.get<{ Params: RefParams & { nodeId: string } }>(
+    '/api/flows/:id/:version/nodes/:nodeId/source',
+    async (request, reply) => {
+      const definition = store.getFlow(request.params.id, request.params.version);
+      if (!definition) {
+        return reply.code(404).send({ error: 'flow definition not found' } satisfies ErrorBody);
+      }
+      const files = readNodeSource(request.params.id, definition, request.params.nodeId);
+      if (!files) {
+        return reply.code(404).send({ error: 'node source not found' } satisfies ErrorBody);
+      }
+      return { files };
+    },
+  );
+
   app.post('/api/flows', async (request, reply) => {
     const definition = request.body as FlowDefinition;
     validateFlowDefinition(definition);
@@ -150,6 +166,7 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     const runner = new FlowRunner({
       definition,
       goal: body.goal,
+      context: body.context,
       executor,
       now,
       onChange: (instance) => publishRun('flow', instance),
@@ -170,10 +187,12 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       return reply.code(404).send({ error: 'plan definition not found' } satisfies ErrorBody);
     }
 
+    const body = request.body as Partial<CreatePlanRunBody> | undefined;
     const runner = new PlanRunner({
       definition,
       resolveFlow,
       executor,
+      context: body?.context,
       now,
       onChange: (instance) => publishRun('plan', instance),
       onFlowInstance: (_nodeId, instance) => {
@@ -253,6 +272,7 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       outcome: body.metrics ? { status: body.outcome, metrics: body.metrics } : { status: body.outcome },
       ...(body.label === undefined ? {} : { label: body.label }),
       ...(body.error === undefined ? {} : { error: body.error }),
+      ...(body.data === undefined ? {} : { output: body.data }),
     };
 
     if (!broker.respond(request.params.flowInstanceId, request.params.nodeId, result)) {

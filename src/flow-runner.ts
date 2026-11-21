@@ -8,6 +8,7 @@ import type {
   NodeRun,
   RunResult,
   UnitStatus,
+  WorkContext,
 } from './model.js';
 import { entryNodeIds, nodeIndex, resolveNextTargets, validateFlowDefinition } from './graph.js';
 import type { NodeExecutor } from './runtime.js';
@@ -17,6 +18,7 @@ export type FlowRunnerOptions = {
   id?: string;
   definition: FlowDefinition;
   goal: Goal;
+  context?: WorkContext;
   executor: NodeExecutor;
   now?: () => Date;
   onChange?: (instance: FlowInstance) => void;
@@ -26,6 +28,7 @@ export class FlowRunner implements FlowInstance {
   readonly id: string;
   readonly flow: { id: string; version: string };
   readonly goal: Goal;
+  readonly context: WorkContext;
   readonly steps: NodeRun[] = [];
   readonly createdAt: string;
 
@@ -42,6 +45,7 @@ export class FlowRunner implements FlowInstance {
   private readonly queued = new Set<string>();
   private readonly inFlight = new Map<string, symbol>();
   private readonly terminalResults: RunResult[] = [];
+  private readonly outputs = new Map<string, unknown>();
   private active = 0;
   private pumping = false;
   private completed = false;
@@ -53,6 +57,7 @@ export class FlowRunner implements FlowInstance {
     this.id = options.id ?? randomUUID();
     this.flow = { id: options.definition.id, version: options.definition.version };
     this.goal = options.goal;
+    this.context = options.context ?? {};
     this.definition = options.definition;
     this.nodes = nodeIndex(options.definition);
     this.executor = options.executor;
@@ -165,6 +170,8 @@ export class FlowRunner implements FlowInstance {
       outcome = await this.executor.execute(node, {
         flowInstanceId: this.id,
         goal: this.goal,
+        context: this.context,
+        outputs: Object.fromEntries(this.outputs),
       });
     } catch (error) {
       this.inFlight.delete(nodeId);
@@ -228,8 +235,12 @@ export class FlowRunner implements FlowInstance {
     run.outcome = outcome.outcome;
     run.label = outcome.label;
     run.error = outcome.error;
+    run.output = outcome.output;
     run.status = 'ended';
     run.finishedAt = this.now().toISOString();
+    if (outcome.output !== undefined) {
+      this.outputs.set(run.nodeId, outcome.output);
+    }
     this.touch();
   }
 

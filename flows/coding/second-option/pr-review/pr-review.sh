@@ -6,7 +6,7 @@ set -euo pipefail
 # the PR for the current branch.
 #
 # Output is a single JSON line, e.g.:
-#   {"outcome":"succeeded","label":"approved"}
+#   {"outcome":"succeeded","label":"ready"}
 #   {"outcome":"succeeded","label":"rework"}
 
 PR="${GH_PR:-}"
@@ -25,7 +25,7 @@ comments="$(gh pr view "$PR" --json comments --jq '.comments | length' 2>/dev/nu
 approvals="$(gh pr view "$PR" --json reviews --jq '[.reviews[] | select(.state == "APPROVED")] | length' 2>/dev/null || echo 0)"
 
 if [ "$state" = "APPROVED" ] || [ "$state" = "MERGED" ] || [ "$approvals" -gt 0 ] 2>/dev/null; then
-  printf '{"outcome":"succeeded","label":"approved"}\n'
+  printf '{"outcome":"succeeded","label":"ready"}\n'
 else
   printf '{"outcome":"succeeded","label":"rework"}\n'
 fi

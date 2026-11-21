@@ -1,19 +1,24 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { FlowDefinition, PlanDefinition } from '@shared/model';
+import type { FlowDefinition, FlowNode, PlanDefinition, PlanNode } from '@shared/model';
 import {
   layoutFlowDefinition,
   layoutPlanDefinition,
   type DiagramEdge,
   type DiagramStage,
 } from '../diagram/layout';
+import { collectFlowCards } from './card-utils';
+
+type NodeRef = { node: FlowNode | PlanNode; stage?: string };
 
 export function DefinitionDiagram({
   definition,
   kind,
+  onSelectNode,
 }: {
   definition: FlowDefinition | PlanDefinition;
   kind: 'flow' | 'plan';
+  onSelectNode?: (node: FlowNode | PlanNode, stage?: string) => void;
 }) {
   const markerId = `diagram-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -21,6 +26,20 @@ export function DefinitionDiagram({
   useEffect(() => {
     setCollapsed(new Set());
   }, [definition]);
+
+  const nodeRefs = useMemo<Map<string, NodeRef>>(() => {
+    const map = new Map<string, NodeRef>();
+    if (kind === 'flow') {
+      for (const card of collectFlowCards(definition as FlowDefinition)) {
+        map.set(card.node.id, { node: card.node, stage: card.stage });
+      }
+    } else {
+      for (const node of (definition as PlanDefinition).nodes) {
+        map.set(node.id, { node });
+      }
+    }
+    return map;
+  }, [definition, kind]);
 
   const diagram = useMemo(
     () =>
@@ -78,17 +97,43 @@ export function DefinitionDiagram({
           <Edge key={edge.id} edge={edge} markerId={markerId} />
         ))}
 
-        {diagram.nodes.map((node) => (
-          <g key={node.id} transform={`translate(${node.x},${node.y})`} className={`diagram-node diagram-node-${node.kind}`}>
-            <rect width={node.width} height={node.height} rx={12} />
-            <text x={node.width / 2} y={node.height / 2 - 4} textAnchor="middle" className="diagram-node-label">
-              {node.label}
-            </text>
-            <text x={node.width / 2} y={node.height / 2 + 11} textAnchor="middle" className="diagram-node-sub">
-              {node.sublabel}
-            </text>
-          </g>
-        ))}
+        {diagram.nodes.map((node) => {
+          const ref = nodeRefs.get(node.id);
+          const clickable = onSelectNode !== undefined && ref !== undefined;
+          const select = () => {
+            if (ref) {
+              onSelectNode?.(ref.node, ref.stage);
+            }
+          };
+          return (
+            <g
+              key={node.id}
+              transform={`translate(${node.x},${node.y})`}
+              className={`diagram-node diagram-node-${node.kind}${clickable ? ' clickable' : ''}`}
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={clickable ? select : undefined}
+              onKeyDown={
+                clickable
+                  ? (event: KeyboardEvent<SVGGElement>) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        select();
+                      }
+                    }
+                  : undefined
+              }
+            >
+              <rect width={node.width} height={node.height} rx={12} />
+              <text x={node.width / 2} y={node.height / 2 - 4} textAnchor="middle" className="diagram-node-label">
+                {node.label}
+              </text>
+              <text x={node.width / 2} y={node.height / 2 + 11} textAnchor="middle" className="diagram-node-sub">
+                {node.sublabel}
+              </text>
+            </g>
+          );
+        })}
 
         {diagram.stages.map((stage) => (
           <StageHeader key={`header-${stage.id}`} stage={stage} onToggle={() => toggleStage(stage.id)} />

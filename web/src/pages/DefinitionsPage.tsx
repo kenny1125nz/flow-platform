@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { FlowDefinition, PlanDefinition } from '@shared/model';
+import type { FlowDefinition, FlowNode, PlanDefinition, PlanNode } from '@shared/model';
 import { api } from '../api';
+import { collectFlowCards } from '../components/card-utils';
 import { DefinitionDiagram } from '../components/DefinitionDiagram';
+import { NodeInfoModal } from '../components/NodeInfoModal';
 
 type Definition = FlowDefinition | PlanDefinition;
 
 export function DefinitionsPage() {
   const definitions = useQuery({ queryKey: ['definitions'], queryFn: api.definitions });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<{ node: FlowNode | PlanNode; stage?: string } | null>(null);
 
   const active =
     definitions.data?.find((definition) => keyOf(definition) === selectedKey) ?? definitions.data?.[0];
@@ -21,6 +24,28 @@ export function DefinitionsPage() {
         : api.flowDefinition(active!.id, active!.version),
     enabled: active !== undefined,
   });
+
+  const selectDefinition = (key: string) => {
+    setSelectedKey(key);
+    setSelectedNode(null);
+  };
+
+  const openNode = (nodeId: string) => {
+    if (!definition.data || !active) {
+      return;
+    }
+    if (active.kind === 'flow') {
+      const card = collectFlowCards(definition.data as FlowDefinition).find((entry) => entry.node.id === nodeId);
+      if (card) {
+        setSelectedNode({ node: card.node, stage: card.stage });
+      }
+    } else {
+      const planNode = (definition.data as PlanDefinition).nodes.find((entry) => entry.id === nodeId);
+      if (planNode) {
+        setSelectedNode({ node: planNode });
+      }
+    }
+  };
 
   return (
     <div className="page definitions-page">
@@ -44,7 +69,7 @@ export function DefinitionsPage() {
                   role="tab"
                   aria-selected={isActive}
                   className={`tab${isActive ? ' active' : ''}`}
-                  onClick={() => setSelectedKey(key)}
+                  onClick={() => selectDefinition(key)}
                 >
                   <span className={`tab-kind tab-kind-${item.kind}`}>{item.kind}</span>
                   {item.id}@{item.version}
@@ -61,13 +86,28 @@ export function DefinitionsPage() {
               </div>
             ) : null}
             {definition.data && active ? (
-              <DefinitionDiagram definition={definition.data} kind={active.kind} />
+              <DefinitionDiagram
+                definition={definition.data}
+                kind={active.kind}
+                onSelectNode={(node, stage) => setSelectedNode({ node, stage })}
+              />
             ) : null}
           </section>
         </>
       ) : definitions.isLoading ? null : (
         <div className="muted">No definitions yet.</div>
       )}
+
+      {selectedNode ? (
+        <NodeInfoModal
+          node={selectedNode.node}
+          stage={selectedNode.stage}
+          flowId={active?.kind === 'flow' ? active.id : undefined}
+          version={active?.kind === 'flow' ? active.version : undefined}
+          onClose={() => setSelectedNode(null)}
+          onOpenNode={openNode}
+        />
+      ) : null}
     </div>
   );
 }

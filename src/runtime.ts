@@ -9,6 +9,7 @@ import type {
   OutcomeStatus,
   RunResult,
   ScriptNode,
+  WorkContext,
 } from './model.js';
 import { failed, succeeded } from './result.js';
 
@@ -17,6 +18,8 @@ const execAsync = promisify(exec);
 export type NodeContext = {
   flowInstanceId: string;
   goal: Goal;
+  context: WorkContext;
+  outputs: Readonly<Record<string, unknown>>;
 };
 
 export type NodeHandler<T extends FlowNode = FlowNode> = (
@@ -68,7 +71,9 @@ export const localScriptHandler: NodeHandler<ScriptNode> = async (node, context)
     ...process.env,
     FLOW_INSTANCE_ID: context.flowInstanceId,
     FLOW_GOAL: JSON.stringify(context.goal),
+    FLOW_CONTEXT: JSON.stringify(context.context),
     FLOW_ARGS: JSON.stringify(node.args ?? {}),
+    FLOW_OUTPUTS: JSON.stringify(context.outputs),
   };
 
   try {
@@ -121,11 +126,13 @@ function toRunResult(value: unknown): RunResult | null {
   const error = normalizeError(record.error);
   const outcome = normalizeOutcome(record.outcome, error);
   const label = typeof record.label === 'string' ? record.label : undefined;
+  const output = 'output' in record ? record.output : undefined;
 
   return {
     outcome: { status: outcome },
     ...(label === undefined ? {} : { label }),
     ...(error === undefined ? {} : { error }),
+    ...(output === undefined ? {} : { output }),
   };
 }
 

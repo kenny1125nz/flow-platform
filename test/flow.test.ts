@@ -207,6 +207,56 @@ test('waits for a human response through the broker', async () => {
   assert.equal(result.label, 'approved');
 });
 
+test('carries node outputs to downstream nodes', async () => {
+  const received: unknown[] = [];
+  const executor = createNodeExecutor({
+    agent: async (node, context) => {
+      if (node.id === 'frame') {
+        return { outcome: { status: 'succeeded' }, output: { goal: 'ship it' } };
+      }
+      received.push(context.outputs);
+      return succeeded('done');
+    },
+  });
+
+  const instance = runner(
+    flow([
+      { id: 'frame', type: 'agent', instruction: 'frame', next: 'make' },
+      { id: 'make', type: 'agent', instruction: 'make' },
+    ]),
+    executor,
+  );
+
+  await instance.execute();
+
+  assert.equal(instance.status, 'ended');
+  assert.deepEqual(instance.steps[0].output, { goal: 'ship it' });
+  assert.deepEqual(received, [{ frame: { goal: 'ship it' } }]);
+});
+
+test('passes work context to node handlers', async () => {
+  const received: unknown[] = [];
+  const executor = createNodeExecutor({
+    script: async (_node, context) => {
+      received.push(context.context);
+      return succeeded('done');
+    },
+  });
+
+  const instance = new FlowRunner({
+    definition: flow([script('a')]),
+    goal: { id: 'g' },
+    context: { repo: 'owner/repo', branch: 'feature', workspace: '/tmp/ws', issueId: '42' },
+    executor,
+  });
+
+  await instance.execute();
+
+  assert.deepEqual(received, [
+    { repo: 'owner/repo', branch: 'feature', workspace: '/tmp/ws', issueId: '42' },
+  ]);
+});
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1000;
   while (!predicate()) {

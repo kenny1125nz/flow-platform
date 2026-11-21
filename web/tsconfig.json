@@ -11,7 +11,9 @@
     "types": ["vite/client", "node"],
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["../src/*"]
+      "@shared/*": ["../src/*"],
+      "react": ["node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["node_modules/@types/react/jsx-runtime.d.ts"]
     }
   },
   "include": ["src", "vite.config.ts"]

@@ -16,7 +16,7 @@ test('parses a structured result from the opencode output', async () => {
 
   try {
     const handler = createOpencodeAgentHandler({ bin });
-    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' } });
+    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' }, context: {}, outputs: {} });
 
     assert.equal(result.outcome.status, 'succeeded');
     assert.equal(result.label, 'ok');
@@ -33,7 +33,7 @@ test('reports a failed result when the process exits non-zero without JSON', asy
 
   try {
     const handler = createOpencodeAgentHandler({ bin });
-    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' } });
+    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' }, context: {}, outputs: {} });
 
     assert.equal(result.outcome.status, 'failed');
     assert.equal(result.error?.code, 'agent.failed');

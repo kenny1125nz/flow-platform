@@ -1,5 +1,6 @@
 import type {
   CreateFlowRunBody,
+  CreatePlanRunBody,
   DefinitionSummary,
   FlowRunDetail,
   HumanRespondBody,
@@ -7,7 +8,7 @@ import type {
   RunDetail,
   RunSummary,
 } from '@shared/api-types';
-import type { FlowDefinition, Goal, PlanDefinition } from '@shared/model';
+import type { FlowDefinition, Goal, PlanDefinition, WorkContext } from '@shared/model';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -49,6 +50,10 @@ export const api = {
   definitions: () => request<DefinitionSummary[]>('/definitions'),
   flowDefinition: (id: string, version: string) =>
     request<FlowDefinition>(`/flows/${encodeURIComponent(id)}/${encodeURIComponent(version)}`),
+  nodeSource: (id: string, version: string, nodeId: string) =>
+    request<{ files: { path: string; content: string }[] }>(
+      `/flows/${encodeURIComponent(id)}/${encodeURIComponent(version)}/nodes/${encodeURIComponent(nodeId)}/source`,
+    ),
   planDefinition: (id: string, version: string) =>
     request<PlanDefinition>(`/plans/${encodeURIComponent(id)}/${encodeURIComponent(version)}`),
   runs: () => request<RunSummary[]>('/runs'),
@@ -58,14 +63,15 @@ export const api = {
   flowRun: (id: string) => request<FlowRunDetail>(`/flow-runs/${encodeURIComponent(id)}`),
   planRuns: () => request<RunSummary[]>('/plan-runs'),
   planRun: (id: string) => request<PlanRunDetail>(`/plan-runs/${encodeURIComponent(id)}`),
-  startFlowRun: (id: string, version: string, goal: Goal) =>
+  startFlowRun: (id: string, version: string, goal: Goal, context?: WorkContext) =>
     request<{ runId: string; status: string }>(`/flows/${encodeURIComponent(id)}/${encodeURIComponent(version)}/runs`, {
       method: 'POST',
-      body: JSON.stringify({ goal } satisfies CreateFlowRunBody),
+      body: JSON.stringify({ goal, ...(context === undefined ? {} : { context }) } satisfies CreateFlowRunBody),
     }),
-  startPlanRun: (id: string, version: string) =>
+  startPlanRun: (id: string, version: string, context?: WorkContext) =>
     request<{ runId: string; status: string }>(`/plans/${encodeURIComponent(id)}/${encodeURIComponent(version)}/runs`, {
       method: 'POST',
+      body: JSON.stringify((context === undefined ? {} : { context }) satisfies CreatePlanRunBody),
     }),
   respondHumanNode: (flowInstanceId: string, nodeId: string, body: HumanRespondBody) =>
     request<{ ok: true }>(

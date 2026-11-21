@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FlowDefinition, FlowNode, HumanNode, NodeRun, StepType } from '@shared/model';
 import type { FlowRunDetail, HumanRespondBody } from '@shared/api-types';
+import { rendererRegistry } from '../renderers';
 import { collectFlowCards, displayStatus, flowDisplayStatus, summaryOf, timingOf } from './card-utils';
 import { DefinitionDiagram } from './DefinitionDiagram';
 import { JsonBlock } from './JsonBlock';
@@ -34,6 +35,10 @@ export function OperationModal({
   const now = useNow(flowRun.steps.some((step) => step.status === 'running'));
   const stageByNode = new Map(collectFlowCards(definition).map((card) => [card.node.id, card.stage]));
   const goalText = flowRun.goal.description ?? flowRun.goal.id;
+  const Renderer = node.type === 'human' ? rendererRegistry[`${flowRun.definition.id}:${node.id}`] : undefined;
+  const inputs = Object.fromEntries(
+    flowRun.steps.filter((step) => step.output !== undefined).map((step) => [step.nodeId, step.output]),
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -156,7 +161,24 @@ export function OperationModal({
                 ) : null}
 
                 {node.type === 'human' && nodeRun.status === 'running' ? (
-                  <HumanResponseForm node={node} onRespond={onRespond} onClose={onClose} />
+                  Renderer ? (
+                    <Renderer
+                      flowInstanceId={flowRun.id}
+                      nodeId={node.id}
+                      prompt={node.prompt ?? ''}
+                      inputs={inputs}
+                      submit={async (result) => {
+                        await onRespond({
+                          outcome: result.outcome,
+                          ...(result.label === undefined ? {} : { label: result.label }),
+                          ...(result.data === undefined ? {} : { data: result.data }),
+                        });
+                        onClose();
+                      }}
+                    />
+                  ) : (
+                    <HumanResponseForm node={node} onRespond={onRespond} onClose={onClose} />
+                  )
                 ) : (
                   <div className="modal-empty">No operator actions are available for this step.</div>
                 )}

@@ -1,0 +1,94 @@
+{
+  "id": "coding",
+  "version": "1",
+  "stages": [
+    {
+      "id": "frame",
+      "name": "Frame",
+      "nodes": [
+        {
+          "id": "define-spec",
+          "type": "agent",
+          "instruction": "Produce a task spec as structured JSON conforming to the TaskSpec schema defined in\n`flows/coding/frame/define-spec/task-spec.schema.ts`:\n\n- goal: a single unambiguous statement of what is true when done, plus explicit non-goals.\n- constraints: non-negotiable decisions, such as a public API shape.\n- scope: the files that may change, and a hard fence of files that must not change.\n- acceptance criteria: machine-checkable conditions, each with how to verify it.\n- evaluation: the build/test commands that determine done, plus any manual checks.\n\nDo not prescribe the implementation approach; leave internal design choices to the\nimplementer. Do not modify files.\n\nWrite the JSON to `task-spec.json`, then verify it before finishing:\n\n    npx tsx flows/coding/frame/define-spec/verify-spec.ts task-spec.json\n\nInclude the task spec as the `output` field of your final result line.",
+          "next": "confirm-spec"
+        },
+        {
+          "id": "confirm-spec",
+          "type": "human",
+          "assignee": "Alice",
+          "prompt": "Review each acceptance criterion in the task spec and confirm, one by one, whether it is\nsatisfied with concrete evidence. The change is ready to proceed only when every\ncriterion is verified with evidence; otherwise send it back for rework.",
+          "next": {
+            "ready": "create-ticket",
+            "rework": "define-spec"
+          }
+        },
+        {
+          "id": "create-ticket",
+          "type": "script",
+          "run": "node flows/coding/frame/create-ticket/create-ticket.mjs",
+          "next": "implement"
+        }
+      ]
+    },
+    {
+      "id": "make",
+      "name": "Make",
+      "nodes": [
+        {
+          "id": "implement",
+          "type": "agent",
+          "instruction": "The task spec lives in a GitHub issue created by the Frame stage. The upstream\n`create-ticket` output (in the flow context) contains the issue number. Fetch the spec:\n\n    node flows/coding/make/implement/read-ticket.mjs <issue-number>\n\nThis prints the task spec (goal, constraints, scope, acceptance criteria, evaluation).\nImplement within the scope, satisfying every acceptance criterion, and run the\nevaluation commands to verify your work. Do not change files outside the scope fence.\n\nAfter implementing, produce an implementation report as structured JSON conforming to\nthe schema in `flows/coding/make/implement/implementation-report.schema.ts`:\n\n- summary: what changed and why.\n- filesChanged: the files you modified.\n- criteria: one entry per acceptance criterion — whether it is satisfied and the\n  concrete evidence for it.\n- evaluation: each command you ran, whether it passed, and the tail of its output.\n\nWrite the JSON to `implementation-report.json`, then verify it before finishing:\n\n    npx tsx flows/coding/make/implement/verify-report.ts implementation-report.json\n\nInclude the report as the `output` field of your final result line.",
+          "next": "verify"
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "nodes": [
+        {
+          "id": "verify",
+          "type": "script",
+          "run": "bash flows/coding/verify/verify/verify.sh",
+          "next": "confirm-verify"
+        },
+        {
+          "id": "confirm-verify",
+          "type": "human",
+          "assignee": "Marcus",
+          "prompt": "Review the verification results and the implementation report. Confirm each acceptance\ncriterion with evidence; the change is ready for PR review only when every criterion is\nverified. Otherwise send it back for rework.",
+          "next": {
+            "ready": "pr-review",
+            "rework": "implement"
+          }
+        }
+      ]
+    },
+    {
+      "id": "second-option",
+      "name": "Second Option",
+      "nodes": [
+        {
+          "id": "pr-review",
+          "type": "script",
+          "run": "bash flows/coding/second-option/pr-review/pr-review.sh",
+          "next": {
+            "ready": "merge",
+            "rework": "implement"
+          }
+        }
+      ]
+    },
+    {
+      "id": "land",
+      "name": "Land",
+      "nodes": [
+        {
+          "id": "merge",
+          "type": "script",
+          "run": "git status --short"
+        }
+      ]
+    }
+  ]
+}

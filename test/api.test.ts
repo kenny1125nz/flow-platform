@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/server/app.js';
 import { createNodeExecutor, HumanTaskBroker, succeeded, validateFlowDefinition } from '../src/index.js';
 import type { RunDetail } from '../src/api-types.js';
-import type { FlowDefinition } from '../src/model.js';
+import type { FlowDefinition, PlanDefinition } from '../src/model.js';
 
 function makeApp() {
   const broker = new HumanTaskBroker();
@@ -15,14 +15,73 @@ function makeApp() {
   return { app: createApp({ broker, executor, seed: true }), broker };
 }
 
+// Minimal definitions used to exercise the run/plan endpoints without seeded data.
+const simpleFlow: FlowDefinition = {
+  id: 'simple',
+  version: '1',
+  stages: [
+    {
+      id: 'main',
+      nodes: [
+        { id: 'prepare', type: 'script', run: 'echo prepare', next: 'approve' },
+        {
+          id: 'approve',
+          type: 'human',
+          prompt: 'Approve?',
+          next: { approved: 'deploy', rejected: 'cancel' },
+        },
+        { id: 'deploy', type: 'script', run: 'echo deploy' },
+        { id: 'cancel', type: 'script', run: 'echo cancel' },
+      ],
+    },
+  ],
+};
+
+const autoFlow: FlowDefinition = {
+  id: 'auto',
+  version: '1',
+  stages: [
+    {
+      id: 'main',
+      nodes: [
+        { id: 'go', type: 'script', run: 'echo go', next: 'done' },
+        { id: 'done', type: 'script', run: 'echo done' },
+      ],
+    },
+  ],
+};
+
+const gateFlow: FlowDefinition = {
+  id: 'gate',
+  version: '1',
+  stages: [
+    {
+      id: 'main',
+      nodes: [
+        { id: 'approve', type: 'human', prompt: 'Approve?', next: { approved: 'deploy' } },
+        { id: 'deploy', type: 'script', run: 'echo deploy' },
+      ],
+    },
+  ],
+};
+
+const simplePlan: PlanDefinition = {
+  id: 'simple-plan',
+  version: '1',
+  nodes: [
+    { id: 'review', goal: { id: 'g', description: 'Review' }, flow: { id: 'auto', version: '1' }, next: 'release' },
+    { id: 'release', goal: { id: 'g', description: 'Ship' }, flow: { id: 'gate', version: '1' } },
+  ],
+};
+
 test('serves seeded definitions', async () => {
   const { app } = makeApp();
   const response = await app.inject({ method: 'GET', url: '/api/definitions' });
 
   assert.equal(response.statusCode, 200);
   const definitions = response.json() as { kind: string; id: string }[];
-  assert.ok(definitions.some((definition) => definition.kind === 'flow' && definition.id === 'release'));
-  assert.ok(definitions.some((definition) => definition.kind === 'plan' && definition.id === 'release-plan'));
+  assert.ok(definitions.some((definition) => definition.kind === 'flow' && definition.id === 'coding'));
+  assert.ok(!definitions.some((definition) => definition.kind === 'plan'));
 });
 
 test('rejects invalid flow definitions', async () => {
@@ -43,10 +102,11 @@ test('rejects invalid flow definitions', async () => {
 
 test('runs a flow and resolves its human step', async () => {
   const { app } = makeApp();
+  await app.inject({ method: 'POST', url: '/api/flows', payload: simpleFlow });
   const started = await app.inject({
     method: 'POST',
-    url: '/api/flows/release/1/runs',
-    payload: { goal: { id: 'release-1' } },
+    url: '/api/flows/simple/1/runs',
+    payload: { goal: { id: 'simple-1' } },
   });
 
   assert.equal(started.statusCode, 202);
@@ -87,9 +147,10 @@ test('serves a valid coding flow with the expected stages', async () => {
 
 test('board returns flow instances with their current steps', async () => {
   const { app } = makeApp();
+  await app.inject({ method: 'POST', url: '/api/flows', payload: simpleFlow });
   const started = await app.inject({
     method: 'POST',
-    url: '/api/flows/release/1/runs',
+    url: '/api/flows/simple/1/runs',
     payload: { goal: { id: 'board-test' } },
   });
   const { runId } = started.json() as { runId: string };
@@ -106,7 +167,10 @@ test('board returns flow instances with their current steps', async () => {
 
 test('runs a plan and exposes nested flow runs', async () => {
   const { app } = makeApp();
-  const started = await app.inject({ method: 'POST', url: '/api/plans/release-plan/1/runs' });
+  await app.inject({ method: 'POST', url: '/api/flows', payload: autoFlow });
+  await app.inject({ method: 'POST', url: '/api/flows', payload: gateFlow });
+  await app.inject({ method: 'POST', url: '/api/plans', payload: simplePlan });
+  const started = await app.inject({ method: 'POST', url: '/api/plans/simple-plan/1/runs' });
   assert.equal(started.statusCode, 202);
   const { runId } = started.json() as { runId: string };
 

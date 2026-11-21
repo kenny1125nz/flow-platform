@@ -6,6 +6,7 @@ import type {
   OutcomeStatus,
   RunResult,
   UnitStatus,
+  WorkContext,
 } from './model.js';
 
 export type DefinitionRef = {
@@ -26,6 +27,7 @@ export type RunSummary = {
   definition: DefinitionRef;
   status: UnitStatus;
   goal?: Goal;
+  context?: WorkContext;
   result?: RunResult;
   createdAt: string;
   updatedAt: string;
@@ -57,6 +59,11 @@ export type RunDetail = FlowRunDetail | PlanRunDetail;
 
 export type CreateFlowRunBody = {
   goal: Goal;
+  context?: WorkContext;
+};
+
+export type CreatePlanRunBody = {
+  context?: WorkContext;
 };
 
 export type HumanRespondBody = {
@@ -64,6 +71,7 @@ export type HumanRespondBody = {
   label?: string;
   error?: FlowError;
   metrics?: Record<string, unknown>;
+  data?: unknown;
 };
 
 export type ErrorBody = {

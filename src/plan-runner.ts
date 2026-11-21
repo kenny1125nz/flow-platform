@@ -9,6 +9,7 @@ import type {
   PlanNode,
   RunResult,
   UnitStatus,
+  WorkContext,
 } from './model.js';
 import {
   entryPlanNodeIds,
@@ -37,6 +38,7 @@ export type PlanRunnerOptions = {
   definition: PlanDefinition;
   resolveFlow: FlowResolver;
   executor: NodeExecutor;
+  context?: WorkContext;
   now?: () => Date;
   onChange?: (instance: PlanInstance) => void;
   onFlowInstance?: (nodeId: string, instance: FlowInstance) => void;
@@ -45,6 +47,7 @@ export type PlanRunnerOptions = {
 export class PlanRunner implements PlanInstance {
   readonly id: string;
   readonly plan: { id: string; version: string };
+  readonly context: WorkContext;
   readonly steps: FlowRun[] = [];
   readonly createdAt: string;
 
@@ -74,6 +77,7 @@ export class PlanRunner implements PlanInstance {
     validatePlanDefinition(options.definition);
     this.id = options.id ?? randomUUID();
     this.plan = { id: options.definition.id, version: options.definition.version };
+    this.context = options.context ?? {};
     this.definition = options.definition;
     this.nodes = new Map(options.definition.nodes.map((node) => [node.id, node]));
     this.resolveFlow = options.resolveFlow;
@@ -185,6 +189,7 @@ export class PlanRunner implements PlanInstance {
       flowInstance = new FlowRunner({
         definition,
         goal: node.goal,
+        context: this.context,
         executor: this.executor,
         now: this.now,
         onChange: (instance) => this.onFlowInstance?.(node.id, instance),
