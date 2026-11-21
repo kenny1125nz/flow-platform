@@ -72,6 +72,7 @@ export function DefinitionDiagram({
         width={diagram.width}
         height={diagram.height}
         viewBox={`0 0 ${diagram.width} ${diagram.height}`}
+        preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label={`${kind} definition diagram`}
       >
