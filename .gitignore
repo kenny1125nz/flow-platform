@@ -4,3 +4,7 @@ dist/
 .env
 .env.*
 .DS_Store
+
+# flow agent working artifacts written into the workspace
+task-spec.json
+implementation-report.json

@@ -140,7 +140,7 @@ test('serves a valid coding flow with the expected stages', async () => {
 
   assert.deepEqual(
     definition.stages.map((stage) => stage.name),
-    ['Frame', 'Make', 'Verify', 'Second Option', 'Land'],
+    ['Frame', 'Make', 'Verify', 'Deliver', 'Land'],
   );
   assert.ok(definition.stages.every((stage) => stage.nodes.length > 0));
 });

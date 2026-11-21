@@ -1,3 +1,4 @@
 # merge
 
-Land the change. A terminal step: the branch is merged and the work is done.
+Land the change: squash-merge the pull request. A terminal step — the work is delivered
+once this succeeds.

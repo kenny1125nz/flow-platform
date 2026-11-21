@@ -56,24 +56,31 @@
           "id": "confirm-verify",
           "type": "human",
           "assignee": "Marcus",
-          "prompt": "Review the verification results and the implementation report. Confirm each acceptance\ncriterion with evidence; the change is ready for PR review only when every criterion is\nverified. Otherwise send it back for rework.",
+          "prompt": "Review the build and test results. Is this change ready to be committed and opened as a\npull request, or does it need rework?",
           "next": {
-            "ready": "pr-review",
+            "ready": "commit-and-pr",
             "rework": "implement"
           }
         }
       ]
     },
     {
-      "id": "second-option",
-      "name": "Second Option",
+      "id": "deliver",
+      "name": "Deliver",
       "nodes": [
         {
-          "id": "pr-review",
+          "id": "commit-and-pr",
           "type": "script",
-          "run": "bash flows/coding/second-option/pr-review/pr-review.sh",
+          "run": "node flows/coding/deliver/commit-and-pr/commit-and-pr.mjs",
+          "next": "pr-review"
+        },
+        {
+          "id": "pr-review",
+          "type": "human",
+          "assignee": "Alice",
+          "prompt": "Review the pull request (its number and url are in the upstream commit-and-pr output).\nApprove it for merge, or send it back for rework?",
           "next": {
-            "ready": "merge",
+            "approved": "merge",
             "rework": "implement"
           }
         }
@@ -86,7 +93,7 @@
         {
           "id": "merge",
           "type": "script",
-          "run": "git status --short"
+          "run": "gh pr merge --squash"
         }
       ]
     }

@@ -1,3 +1,2 @@
-Review the verification results and the implementation report. Confirm each acceptance
-criterion with evidence; the change is ready for PR review only when every criterion is
-verified. Otherwise send it back for rework.
+Review the build and test results. Is this change ready to be committed and opened as a
+pull request, or does it need rework?
