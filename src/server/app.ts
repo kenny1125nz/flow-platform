@@ -19,13 +19,20 @@ import { EventHub } from './events.js';
 import { readNodeSource } from './flows-source.js';
 import { seedDefinitions } from './seed.js';
 import { flowRunDetail, flowRunSummary, planRunDetail, planRunSummary } from './serialize.js';
-import { DefinitionStore, RunRegistry, definitionKey, type RegisteredRun } from './store.js';
+import {
+  DefinitionStore,
+  RunRegistry,
+  RunStore,
+  definitionKey,
+  type RegisteredRun,
+} from './store.js';
 
 export type AppOptions = {
   executor?: NodeExecutor;
   broker?: HumanTaskBroker;
   seed?: boolean;
   now?: () => Date;
+  runStore?: RunStore;
 };
 
 type RefParams = { id: string; version: string };
@@ -36,6 +43,7 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const store = new DefinitionStore();
   const registry = new RunRegistry();
+  const runStore = options.runStore;
   const hub = new EventHub();
   const now = options.now ?? (() => new Date());
 
@@ -71,6 +79,10 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
 
   if (options.seed !== false) {
     seedDefinitions(store);
+  }
+
+  if (runStore) {
+    runStore.load(registry);
   }
 
   app.setErrorHandler((error, _request, reply) => {
@@ -169,10 +181,14 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       context: body.context,
       executor,
       now,
-      onChange: (instance) => publishRun('flow', instance),
+      onChange: (instance) => {
+        publishRun('flow', instance);
+        runStore?.save({ kind: 'flow', instance });
+      },
     });
     registry.addFlow(runner);
     publishRun('flow', runner);
+    runStore?.save({ kind: 'flow', instance: runner });
 
     void runner.execute().catch((error: unknown) => {
       app.log.error(error);
@@ -194,14 +210,19 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       executor,
       context: body?.context,
       now,
-      onChange: (instance) => publishRun('plan', instance),
+      onChange: (instance) => {
+        publishRun('plan', instance);
+        runStore?.save({ kind: 'plan', instance: runner });
+      },
       onFlowInstance: (_nodeId, instance) => {
         registry.addFlow(instance);
         publishRun('flow', instance);
+        runStore?.save({ kind: 'flow', instance });
       },
     });
     registry.addPlan(runner);
     publishRun('plan', runner);
+    runStore?.save({ kind: 'plan', instance: runner });
 
     void runner.execute().catch((error: unknown) => {
       app.log.error(error);

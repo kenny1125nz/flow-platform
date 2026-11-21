@@ -19,3 +19,7 @@ export function repoRoot(): string {
 export function flowsRoot(): string {
   return join(repoRoot(), 'flows');
 }
+
+export function runStoreRoot(): string {
+  return join(repoRoot(), '.runs');
+}

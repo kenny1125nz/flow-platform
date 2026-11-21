@@ -8,3 +8,6 @@ dist/
 # flow agent working artifacts written into the workspace
 task-spec.json
 implementation-report.json
+
+# durable run artifacts (persisted run instances)
+.runs/

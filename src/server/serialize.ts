@@ -1,6 +1,6 @@
-import type { FlowInstance, PlanInstance } from '../model.js';
+import type { FlowInstance } from '../model.js';
 import type { FlowRunDetail, PlanRunDetail, PlanStepDetail, RunSummary } from '../api-types.js';
-import type { PlanRunner } from '../plan-runner.js';
+import type { PlanRunView } from './store.js';
 
 export function flowRunSummary(run: FlowInstance): RunSummary {
   return {
@@ -16,7 +16,7 @@ export function flowRunSummary(run: FlowInstance): RunSummary {
   };
 }
 
-export function planRunSummary(run: PlanInstance): RunSummary {
+export function planRunSummary(run: PlanRunView): RunSummary {
   return {
     id: run.id,
     kind: 'plan',
@@ -38,7 +38,7 @@ export function flowRunDetail(run: FlowInstance): FlowRunDetail {
   };
 }
 
-export function planRunDetail(run: PlanRunner): PlanRunDetail {
+export function planRunDetail(run: PlanRunView): PlanRunDetail {
   const steps: PlanStepDetail[] = run.definition.nodes.map((node) => {
     const flow = run.getFlowInstance(node.id);
     const flowRun = run.steps.find((step) => step.nodeId === node.id);
