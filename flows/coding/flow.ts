@@ -34,7 +34,7 @@ export const codingFlow: FlowDefinition = {
           id: 'create-ticket',
           type: 'script',
           run: 'node flows/coding/frame/create-ticket/create-ticket.mjs',
-          next: 'implement',
+          next: 'prepare-branch',
         },
       ],
     },
@@ -42,6 +42,12 @@ export const codingFlow: FlowDefinition = {
       id: 'make',
       name: 'Make',
       nodes: [
+        {
+          id: 'prepare-branch',
+          type: 'script',
+          run: 'node flows/coding/make/prepare-branch/prepare-branch.mjs',
+          next: 'implement',
+        },
         {
           id: 'implement',
           type: 'agent',
