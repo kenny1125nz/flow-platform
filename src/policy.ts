@@ -13,6 +13,9 @@ export type TierConfig = {
   // When false, the tier runs but its verdict is advisory only — it never finalizes the
   // node, and the cascade continues to the next tier.
   binding: Partial<Record<TierKind, boolean>>;
+  // When true, the human executor must run even in an autonomous run. This is how policy
+  // protects high-risk work from being delegated to a cheaper executor.
+  requireHuman?: boolean;
 };
 
 export type DelegationConfig = {
@@ -65,6 +68,9 @@ export function makePolicy(id: string, version: string, overrides: Partial<FlowP
     config: {
       bar: { ...(overrides.config?.bar ?? {}) },
       binding: { ...(overrides.config?.binding ?? {}) },
+      ...(overrides.config?.requireHuman === undefined
+        ? {}
+        : { requireHuman: overrides.config.requireHuman }),
     },
     delegation: { ...DEFAULT_POLICY.delegation, ...(overrides.delegation ?? {}) },
     rules: [...(overrides.rules ?? [])],
@@ -83,6 +89,7 @@ export type ResolvedTierConfig = {
   bar: Partial<Record<TierKind, number>>;
   binding: Partial<Record<TierKind, boolean>>;
   delegation: DelegationConfig;
+  requireHuman: boolean;
 };
 
 // Resolves the effective tier config for a node: the policy default, overlaid by the
@@ -91,17 +98,21 @@ export function resolveTierConfig(node: { annotations?: Record<string, string> }
   let bar: Partial<Record<TierKind, number>> = { ...policy.config.bar };
   let binding: Partial<Record<TierKind, boolean>> = { ...policy.config.binding };
   let delegation: DelegationConfig = { ...policy.delegation };
+  let requireHuman = policy.config.requireHuman ?? false;
 
   for (const rule of policy.rules) {
     if (matchesAnnotations(node, rule.when)) {
       bar = { ...bar, ...(rule.config?.bar ?? {}) };
       binding = { ...binding, ...(rule.config?.binding ?? {}) };
       delegation = { ...delegation, ...(rule.delegation ?? {}) };
+      if (rule.config?.requireHuman !== undefined) {
+        requireHuman = rule.config.requireHuman;
+      }
       break;
     }
   }
 
-  return { bar, binding, delegation };
+  return { bar, binding, delegation, requireHuman };
 }
 
 export function barFor(config: ResolvedTierConfig, policy: FlowPolicy, kind: TierKind): number {

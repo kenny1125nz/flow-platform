@@ -1052,6 +1052,101 @@ textarea {
   max-height: 210px;
 }
 
+.log-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.log-group {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.log-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.log-node {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.log-tier {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.log-tier-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.log-kind {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--gray-soft);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.log-kind-agent {
+  background: #e7efff;
+  color: #2f5fbf;
+}
+
+.log-kind-script {
+  background: #e8f6ef;
+  color: #1c7a55;
+}
+
+.log-block {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.log-label {
+  padding: 0.2rem 0.55rem;
+  background: var(--gray-soft);
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.log-block pre {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  max-height: 260px;
+  overflow: auto;
+  background: #0f172a;
+  color: #dbe4f3;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-stderr .log-label {
+  background: #fbe9e7;
+  color: #b3402f;
+}
+
+.log-stderr pre {
+  background: #2a1215;
+  color: #ffd9d4;
+}
+
 .modal-diagram-section {
   display: flex;
   flex-direction: column;

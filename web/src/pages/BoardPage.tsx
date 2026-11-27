@@ -75,7 +75,7 @@ export function BoardPage() {
   });
 
   if (board.isLoading) {
-    return <div className="board-loading muted">Loading board…</div>;
+    return <div className="board-loading muted">Loading Runlets…</div>;
   }
 
   if (board.error || !board.data) {

@@ -5,6 +5,7 @@ import {
   HumanTaskBroker,
   createNodeExecutor,
   failed,
+  localScriptHandler,
   succeeded,
 } from '../src/index.js';
 import type { FlowDefinition, FlowNode } from '../src/index.js';
@@ -449,3 +450,26 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+test('captures stdout and stderr from a script executor into the tier trace', async () => {
+  const executor = createNodeExecutor({ script: localScriptHandler });
+  const definition = flow([
+    {
+      id: 'run',
+      tiers: [
+        {
+          kind: 'script',
+          run: `node -e "process.stdout.write(JSON.stringify({outcome:'succeeded',label:'ok'}));process.stderr.write('warn')"`,
+        },
+      ],
+    },
+  ]);
+
+  const instance = new FlowRunner({ definition, goal: { id: 'g' }, executor });
+  const result = await instance.execute();
+
+  assert.equal(result.label, 'ok');
+  const tier = instance.steps[0].tiers[0];
+  assert.match(tier.stdout ?? '', /"label":"ok"/);
+  assert.equal(tier.stderr, 'warn');
+});

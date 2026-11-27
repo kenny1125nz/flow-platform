@@ -49,7 +49,7 @@ export function DefinitionsPage() {
 
   return (
     <div className="page definitions-page">
-      {definitions.isLoading ? <div className="muted">Loading definitions…</div> : null}
+      {definitions.isLoading ? <div className="muted">Loading Blueprints…</div> : null}
       {definitions.error ? (
         <div className="error-text">
           {definitions.error instanceof Error ? definitions.error.message : String(definitions.error)}
@@ -58,7 +58,7 @@ export function DefinitionsPage() {
 
       {definitions.data?.length ? (
         <>
-          <div className="tab-bar" role="tablist" aria-label="Definitions">
+          <div className="tab-bar" role="tablist" aria-label="Blueprints">
             {definitions.data.map((item) => {
               const key = keyOf(item);
               const isActive = active !== undefined && keyOf(active) === key;
@@ -95,7 +95,7 @@ export function DefinitionsPage() {
           </section>
         </>
       ) : definitions.isLoading ? null : (
-        <div className="muted">No definitions yet.</div>
+        <div className="muted">No Blueprints yet.</div>
       )}
 
       {selectedNode ? (

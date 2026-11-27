@@ -45,6 +45,7 @@ test('parses a structured result and token usage from the opencode output', asyn
       cacheWrite: 0,
       cost: 0.01,
     });
+    assert.match(result.stdout ?? '', /"type":"text"/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -62,6 +63,7 @@ test('reports a failed result when the process exits non-zero without JSON', asy
 
     assert.equal(result.outcome.status, 'failed');
     assert.equal(result.error?.code, 'agent.failed');
+    assert.match(result.stderr ?? '', /boom/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

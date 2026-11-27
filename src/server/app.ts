@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import type { FlowDefinition, FlowInstance, PlanDefinition, RunResult } from '../model.js';
+import type { FlowDefinition, FlowInstance, PlanDefinition, RunResult, WorkContext } from '../model.js';
 import type {
   CreateFlowRunBody,
   CreatePlanRunBody,
@@ -44,6 +44,14 @@ export type AppOptions = {
 type RefParams = { id: string; version: string };
 type IdParams = { id: string };
 type HumanParams = { flowInstanceId: string; nodeId: string };
+
+function autonomyError(context: WorkContext | undefined): string | undefined {
+  const autonomy = context?.autonomy;
+  if (autonomy !== undefined && autonomy !== 'supervised' && autonomy !== 'autonomous') {
+    return 'context.autonomy must be "supervised" or "autonomous"';
+  }
+  return undefined;
+}
 
 export function createApp(options: AppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -248,6 +256,10 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     if (!body?.goal?.id) {
       return reply.code(400).send({ error: 'goal.id is required' } satisfies ErrorBody);
     }
+    const autonomyIssue = autonomyError(body.context);
+    if (autonomyIssue) {
+      return reply.code(400).send({ error: autonomyIssue } satisfies ErrorBody);
+    }
 
     const runner = new FlowRunner({
       definition,
@@ -278,6 +290,10 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     }
 
     const body = request.body as Partial<CreatePlanRunBody> | undefined;
+    const autonomyIssue = autonomyError(body?.context);
+    if (autonomyIssue) {
+      return reply.code(400).send({ error: autonomyIssue } satisfies ErrorBody);
+    }
     const runner = new PlanRunner({
       definition,
       resolveFlow,

@@ -79,15 +79,28 @@ export const localScriptHandler: TierHandler<ScriptTier> = async (tier, context)
   };
 
   try {
-    const { stdout } = await execAsync(tier.run, { env });
-    return parseScriptResult(stdout) ?? succeeded();
+    const { stdout, stderr } = await execAsync(tier.run, { env });
+    return withLogs(parseScriptResult(stdout) ?? succeeded(), stdout, stderr);
   } catch (error) {
-    return failed({
-      code: 'script.failed',
-      message: error instanceof Error ? error.message : String(error),
-    });
+    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    return withLogs(
+      failed({
+        code: 'script.failed',
+        message: failure.message ?? String(error),
+      }),
+      failure.stdout ?? '',
+      failure.stderr ?? '',
+    );
   }
 };
+
+function withLogs(result: RunResult, stdout: string, stderr: string): RunResult {
+  return {
+    ...result,
+    ...(stdout ? { stdout } : {}),
+    ...(stderr ? { stderr } : {}),
+  };
+}
 
 function parseScriptResult(stdout: string): RunResult | null {
   const lines = stdout.replace(/\r\n/g, '\n').split('\n');

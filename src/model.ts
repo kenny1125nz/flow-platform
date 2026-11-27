@@ -10,6 +10,11 @@ export type Goal = {
   description?: string;
 };
 
+// How human-checkable steps are handled for a run. `supervised` (the default) keeps the
+// human executor as the anchor; `autonomous` lets the engine drop human executors and let
+// the next cheaper executor carry the work, except where a policy rule requires a human.
+export type AutonomyMode = 'supervised' | 'autonomous';
+
 // The environment a run executes in — where the work happens. Set at run start and
 // carried to every tier (agent/script/human) so tiers know the target repo, branch,
 // and workspace without re-deriving them.
@@ -18,6 +23,7 @@ export type WorkContext = {
   branch?: string;    // working branch
   workspace?: string; // local checkout path
   issueId?: string;   // an existing issue the work is triggered by
+  autonomy?: AutonomyMode; // run-level executor mode (default: supervised)
 };
 
 export type Outcome = {
@@ -132,6 +138,8 @@ export type TierRun = {
   escalated?: boolean;       // true when the tier's output fell below its bar
   advisory?: boolean;        // true when the tier ran but its verdict was not authoritative
   sampled?: boolean;         // true when the tier ran only to gather calibration data
+  stdout?: string;           // raw process stdout for script/agent tiers
+  stderr?: string;           // raw process stderr for script/agent tiers
   startedAt?: string;
   finishedAt?: string;
 };
@@ -155,6 +163,9 @@ export type RunResult = {
   error?: FlowError;
   output?: unknown;
   usage?: TokenUsage;
+  // Raw process output for script/agent tiers, captured so the run detail can show it.
+  stdout?: string;
+  stderr?: string;
   // A tier may report how confident it is in its output; the cascade compares it against
   // the tier's acceptance bar.
   confidence?: number;

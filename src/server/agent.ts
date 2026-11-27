@@ -33,8 +33,14 @@ export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): 
     });
 
     const parsed = parseJsonStream(result.stdout);
+    const withLogs = (value: RunResult): RunResult => ({
+      ...value,
+      ...(result.stdout ? { stdout: result.stdout } : {}),
+      ...(result.stderr ? { stderr: result.stderr } : {}),
+    });
+
     if (parsed.result) {
-      return parsed.usage ? { ...parsed.result, usage: parsed.usage } : parsed.result;
+      return withLogs(parsed.usage ? { ...parsed.result, usage: parsed.usage } : parsed.result);
     }
 
     if (result.exitCode !== 0) {
@@ -42,11 +48,11 @@ export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): 
         code: 'agent.failed',
         message: result.stderr.trim() || `opencode exited with code ${result.exitCode ?? 'unknown'}`,
       });
-      return parsed.usage ? { ...failure, usage: parsed.usage } : failure;
+      return withLogs(parsed.usage ? { ...failure, usage: parsed.usage } : failure);
     }
 
     const success = succeeded();
-    return parsed.usage ? { ...success, usage: parsed.usage } : success;
+    return withLogs(parsed.usage ? { ...success, usage: parsed.usage } : success);
   };
 }
 
