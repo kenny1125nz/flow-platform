@@ -1,19 +1,43 @@
-import type { FlowDefinition, FlowNode, NodeRun, OutcomeStatus, StepType, TokenUsage, UnitStatus } from '@shared/model';
+import type { FlowDefinition, FlowNode, NodeRun, OutcomeStatus, Tier, TierKind, TierRun, TokenUsage, UnitStatus } from '@shared/model';
 import type { FlowRunDetail } from '@shared/api-types';
 
 export function displayStatus(run: NodeRun): UnitStatus | OutcomeStatus {
   return run.status === 'ended' && run.outcome ? run.outcome.status : run.status;
 }
 
-export function summaryOf(node: FlowNode): string {
-  switch (node.type) {
-    case 'human':
-      return node.prompt ?? (node.assignee ? `Assigned to ${node.assignee}` : 'Waiting for a person');
-    case 'agent':
-      return node.instruction;
-    case 'script':
-      return node.run;
+// The tier that is currently carrying the node's work: the one still running, or the
+// last one that ran. Older persisted runs may predate the tier trace, so treat a missing
+// `tiers` value as empty.
+export function activeTier(run: NodeRun): TierRun | undefined {
+  const tiers = run.tiers ?? [];
+  const running = [...tiers].reverse().find((tier) => tier.status === 'running');
+  if (running) {
+    return running;
   }
+  return tiers.at(-1);
+}
+
+export function activeTierKind(run: NodeRun): TierKind | undefined {
+  return activeTier(run)?.kind;
+}
+
+export function tierLabel(tier: Tier): string {
+  switch (tier.kind) {
+    case 'script':
+      return tier.run;
+    case 'agent':
+      return tier.instruction;
+    case 'human':
+      return tier.prompt ?? (tier.assignee ? `Assigned to ${tier.assignee}` : 'Waiting for a person');
+  }
+}
+
+export function summaryOf(node: FlowNode): string {
+  return node.tiers.map((tier) => tierLabel(tier)).join(' · ');
+}
+
+export function humanTierOf(node: FlowNode): Extract<Tier, { kind: 'human' }> | undefined {
+  return node.tiers.find((tier): tier is Extract<Tier, { kind: 'human' }> => tier.kind === 'human');
 }
 
 export function timingOf(run: NodeRun, now: number): string {
@@ -87,18 +111,29 @@ export function collectFlowCards(definition: FlowDefinition): FlowCardBase[] {
 
 export type RunColumn = 'human' | 'agent' | 'script' | 'paused' | 'ended';
 
-const runningPriority: StepType[] = ['human', 'agent', 'script'];
+const tierPriority: TierKind[] = ['human', 'agent', 'script'];
 
 export function focusStep(run: FlowRunDetail): NodeRun | undefined {
   const running = run.steps.filter((step) => step.status === 'running');
   if (running.length > 0) {
-    return [...running].sort(
-      (a, b) => runningPriority.indexOf(a.type) - runningPriority.indexOf(b.type),
-    )[0];
+    return [...running].sort((a, b) => {
+      const kindA = activeTierKind(a) ?? 'script';
+      const kindB = activeTierKind(b) ?? 'script';
+      return tierPriority.indexOf(kindA) - tierPriority.indexOf(kindB);
+    })[0];
   }
   if (run.status === 'paused') {
     const paused = [...run.steps].reverse().find((step) => step.status === 'paused');
-    return paused ?? run.steps.at(-1);
+    if (paused) {
+      return paused;
+    }
+    // Prefer the step that carries the run's blocking error so operator actions target
+    // the step that actually stopped the flow.
+    const errorCode = run.result?.error?.code;
+    const blocked = errorCode
+      ? [...run.steps].reverse().find((step) => step.error?.code === errorCode)
+      : undefined;
+    return blocked ?? run.steps.at(-1);
   }
   return run.steps.at(-1);
 }
@@ -111,13 +146,14 @@ export function runColumn(run: FlowRunDetail): RunColumn {
     return 'ended';
   }
   const running = run.steps.filter((step) => step.status === 'running');
-  if (running.some((step) => step.type === 'human')) {
+  const kinds = running.map((step) => activeTierKind(step)).filter((kind): kind is TierKind => kind !== undefined);
+  if (kinds.includes('human')) {
     return 'human';
   }
-  if (running.some((step) => step.type === 'agent')) {
+  if (kinds.includes('agent')) {
     return 'agent';
   }
-  if (running.some((step) => step.type === 'script')) {
+  if (kinds.includes('script')) {
     return 'script';
   }
   return 'paused';

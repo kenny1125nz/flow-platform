@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-import type { AgentNode, FlowError, OutcomeStatus, RunResult, TokenUsage } from '../model.js';
-import type { NodeContext, NodeHandler } from '../runtime.js';
+import type { AgentTier, RunResult, TokenUsage } from '../model.js';
+import { toRunResult } from '../parse-result.js';
+import type { NodeContext, TierHandler } from '../runtime.js';
 import { failed, succeeded } from '../result.js';
 
 export type OpencodeAgentOptions = {
@@ -11,9 +12,9 @@ export type OpencodeAgentOptions = {
   cwd?: string;
 };
 
-export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): NodeHandler<AgentNode> {
-  return async (node, context) => {
-    const instruction = withResultInstruction(node.instruction, context, node.id);
+export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): TierHandler<AgentTier> {
+  return async (tier, context) => {
+    const instruction = withResultInstruction(tier.instruction, context);
     const args = ['run', '--format', 'json'];
 
     if (options.model) {
@@ -25,7 +26,7 @@ export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): 
     if (options.autoApprove) {
       args.push('--auto');
     }
-    args.push('--title', `flow:${context.flowInstanceId}:${node.id}`, instruction);
+    args.push('--title', `flow:${context.flowInstanceId}:${context.nodeId}`, instruction);
 
     const result = await runOpencode(options.bin ?? 'opencode', args, {
       cwd: context.context.workspace ?? options.cwd,
@@ -49,22 +50,24 @@ export function createOpencodeAgentHandler(options: OpencodeAgentOptions = {}): 
   };
 }
 
-function withResultInstruction(instruction: string, context: NodeContext, nodeId: string): string {
+function withResultInstruction(instruction: string, context: NodeContext): string {
   const outputs =
     Object.keys(context.outputs).length > 0 ? JSON.stringify(context.outputs, null, 2) : '(none)';
   return [
     instruction,
     '',
     '---',
-    `Flow context: instance ${context.flowInstanceId}, node ${nodeId}.`,
+    `Flow context: instance ${context.flowInstanceId}, node ${context.nodeId}.`,
     `Goal: ${JSON.stringify(context.goal)}`,
     `Work context (repo, branch, workspace, issue): ${JSON.stringify(context.context)}`,
     'Upstream outputs (nodeId -> output):',
     outputs,
     'When finished, print one final line of JSON:',
-    '{"outcome":"succeeded","label":"<short outcome label>","output":<optional structured output>}',
+    '{"outcome":"succeeded","label":"<short outcome label>","output":<optional structured output>,"confidence":<optional 0..1>}',
     'or',
     '{"outcome":"failed","error":{"code":"<code>","message":"<message>"}}',
+    'When your verdict is uncertain, report a `confidence` between 0 and 1 so the flow',
+    'can escalate to a human reviewer instead of trusting a guess.',
   ].join('\n');
 }
 
@@ -157,7 +160,7 @@ function parseAgentResult(stdout: string): RunResult | null {
 
     try {
       const value: unknown = JSON.parse(candidate);
-      const result = toRunResult(value);
+      const result = toRunResult(value, 'agent.error');
       if (result) {
         return result;
       }
@@ -167,54 +170,4 @@ function parseAgentResult(stdout: string): RunResult | null {
   }
 
   return null;
-}
-
-function toRunResult(value: unknown): RunResult | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (!('outcome' in record) && !('label' in record) && !('error' in record)) {
-    return null;
-  }
-
-  const error = normalizeError(record.error);
-  const outcome = normalizeOutcome(record.outcome, error);
-  const label = typeof record.label === 'string' ? record.label : undefined;
-  const output = 'output' in record ? record.output : undefined;
-
-  return {
-    outcome: { status: outcome },
-    ...(label === undefined ? {} : { label }),
-    ...(error === undefined ? {} : { error }),
-    ...(output === undefined ? {} : { output }),
-  };
-}
-
-function normalizeOutcome(value: unknown, error: FlowError | undefined): OutcomeStatus {
-  if (value === 'succeeded' || value === 'failed' || value === 'cancelled') {
-    return value;
-  }
-  return error ? 'failed' : 'succeeded';
-}
-
-function normalizeError(value: unknown): FlowError | undefined {
-  if (typeof value === 'string') {
-    return { code: 'agent.error', message: value };
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const record = value as Record<string, unknown>;
-  const code = typeof record.code === 'string' ? record.code : 'agent.error';
-  const message = typeof record.message === 'string' ? record.message : undefined;
-  const hint = typeof record.hint === 'string' ? record.hint : undefined;
-
-  return {
-    code,
-    ...(message === undefined ? {} : { message }),
-    ...(hint === undefined ? {} : { hint }),
-  };
 }

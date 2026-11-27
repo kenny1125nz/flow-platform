@@ -26,6 +26,7 @@ export type RunSummary = {
   kind: 'flow' | 'plan';
   definition: DefinitionRef;
   status: UnitStatus;
+  suspended?: boolean;
   goal?: Goal;
   context?: WorkContext;
   result?: RunResult;
@@ -71,7 +72,20 @@ export type HumanRespondBody = {
   label?: string;
   error?: FlowError;
   metrics?: Record<string, unknown>;
+  confidence?: number;
   data?: unknown;
+};
+
+export type FlowOperatorAction = 'retry' | 'skip' | 'jump';
+
+export type FlowOperatorBody = {
+  action: FlowOperatorAction;
+  nodeId: string;
+};
+
+export type PolicySummary = {
+  id: string;
+  version: string;
 };
 
 export type ErrorBody = {

@@ -2,6 +2,7 @@ import type {
   CreateFlowRunBody,
   CreatePlanRunBody,
   DefinitionSummary,
+  FlowOperatorBody,
   FlowRunDetail,
   HumanRespondBody,
   PlanRunDetail,
@@ -58,6 +59,9 @@ export const api = {
     request<PlanDefinition>(`/plans/${encodeURIComponent(id)}/${encodeURIComponent(version)}`),
   runs: () => request<RunSummary[]>('/runs'),
   run: (id: string) => request<RunDetail>(`/runs/${encodeURIComponent(id)}`),
+  cancelRun: (id: string) => request<{ ok: true }>(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  pauseRun: (id: string) => request<{ ok: true }>(`/runs/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+  resumeRun: (id: string) => request<{ ok: true }>(`/runs/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
   board: () => request<FlowRunDetail[]>('/board'),
   flowRuns: () => request<RunSummary[]>('/flow-runs'),
   flowRun: (id: string) => request<FlowRunDetail>(`/flow-runs/${encodeURIComponent(id)}`),
@@ -72,6 +76,11 @@ export const api = {
     request<{ runId: string; status: string }>(`/plans/${encodeURIComponent(id)}/${encodeURIComponent(version)}/runs`, {
       method: 'POST',
       body: JSON.stringify((context === undefined ? {} : { context }) satisfies CreatePlanRunBody),
+    }),
+  operateFlowRun: (runId: string, body: FlowOperatorBody) =>
+    request<{ ok: true }>(`/flow-runs/${encodeURIComponent(runId)}/operator`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
   respondHumanNode: (flowInstanceId: string, nodeId: string, body: HumanRespondBody) =>
     request<{ ok: true }>(

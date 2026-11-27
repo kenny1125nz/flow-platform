@@ -18,7 +18,15 @@ function flow(nodes: FlowNode[]): FlowDefinition {
 }
 
 function script(id: string, next?: FlowNode['next']): FlowNode {
-  return { id, type: 'script', run: `echo ${id}`, ...(next === undefined ? {} : { next }) };
+  return { id, tiers: [{ kind: 'script', run: `echo ${id}` }], ...(next === undefined ? {} : { next }) };
+}
+
+function agent(id: string, instruction = 'do it', next?: FlowNode['next']): FlowNode {
+  return { id, tiers: [{ kind: 'agent', instruction }], ...(next === undefined ? {} : { next }) };
+}
+
+function human(id: string, next?: FlowNode['next']): FlowNode {
+  return { id, tiers: [{ kind: 'human', prompt: 'approve' }], ...(next === undefined ? {} : { next }) };
 }
 
 function runner(definition: FlowDefinition, executor: ReturnType<typeof createNodeExecutor>): FlowRunner {
@@ -28,28 +36,21 @@ function runner(definition: FlowDefinition, executor: ReturnType<typeof createNo
 test('runs a linear flow and returns the terminal result', async () => {
   const order: string[] = [];
   const executor = createNodeExecutor({
-    script: async (node) => {
-      order.push(node.id);
+    script: async (tier, context) => {
+      order.push(context.nodeId);
       return succeeded('script-done');
     },
-    agent: async (node) => {
-      order.push(node.id);
+    agent: async (_tier, context) => {
+      order.push(context.nodeId);
       return succeeded('agent-done');
     },
-    human: async (node) => {
-      order.push(node.id);
+    human: async (_tier, context) => {
+      order.push(context.nodeId);
       return succeeded('human-done');
     },
   });
 
-  const instance = runner(
-    flow([
-      script('a', 'b'),
-      { id: 'b', type: 'agent', instruction: 'do it', next: 'c' },
-      { id: 'c', type: 'human', prompt: 'approve' },
-    ]),
-    executor,
-  );
+  const instance = runner(flow([script('a', 'b'), agent('b', 'do it', 'c'), human('c')]), executor);
 
   const result = await instance.execute();
 
@@ -58,14 +59,19 @@ test('runs a linear flow and returns the terminal result', async () => {
   assert.equal(result.label, 'human-done');
   assert.deepEqual(order, ['a', 'b', 'c']);
   assert.deepEqual(instance.steps.map((step) => step.nodeId), ['a', 'b', 'c']);
+  assert.deepEqual(instance.steps.map((step) => step.tiers.map((tier) => tier.kind)), [
+    ['script'],
+    ['agent'],
+    ['human'],
+  ]);
 });
 
 test('routes on positive outcome labels', async () => {
   const visited: string[] = [];
   const executor = createNodeExecutor({
-    script: async (node) => {
-      visited.push(node.id);
-      return node.id === 'decision' ? succeeded('approved') : succeeded(node.id);
+    script: async (_tier, context) => {
+      visited.push(context.nodeId);
+      return context.nodeId === 'decision' ? succeeded('approved') : succeeded(context.nodeId);
     },
   });
 
@@ -87,9 +93,9 @@ test('routes on positive outcome labels', async () => {
 test('routes on error codes', async () => {
   const visited: string[] = [];
   const executor = createNodeExecutor({
-    script: async (node) => {
-      visited.push(node.id);
-      if (node.id === 'build') {
+    script: async (_tier, context) => {
+      visited.push(context.nodeId);
+      if (context.nodeId === 'build') {
         return failed({ code: 'build.broken', message: 'compile failed' });
       }
       return succeeded('recovered');
@@ -126,6 +132,92 @@ test('pauses on an unrouted error', async () => {
   assert.deepEqual(instance.steps.map((step) => step.nodeId), ['a']);
 });
 
+test('retries a paused step in place and continues', async () => {
+  let attempts = 0;
+  const executor = createNodeExecutor({
+    script: async (_tier, context) => {
+      if (context.nodeId === 'a') {
+        attempts += 1;
+        return attempts === 1 ? failed({ code: 'boom', message: 'bad' }) : succeeded('retried');
+      }
+      return succeeded(context.nodeId);
+    },
+  });
+  const instance = runner(flow([script('a', 'b'), script('b')]), executor);
+
+  await instance.execute();
+  assert.equal(instance.status, 'paused');
+  assert.equal(instance.steps.length, 1);
+
+  instance.retryStep('a');
+  await waitFor(() => instance.status === 'ended');
+
+  assert.equal(instance.steps.length, 2);
+  assert.equal(instance.steps[0].nodeId, 'a');
+  assert.equal(instance.steps[0].status, 'ended');
+  assert.equal(instance.steps[0].label, 'retried');
+  assert.deepEqual(instance.steps.map((step) => step.nodeId), ['a', 'b']);
+  assert.equal(instance.result?.outcome.status, 'succeeded');
+});
+
+test('skips a paused step and follows its positive route', async () => {
+  const visited: string[] = [];
+  const executor = createNodeExecutor({
+    script: async (_tier, context) => {
+      visited.push(context.nodeId);
+      if (context.nodeId === 'a') {
+        return failed({ code: 'boom', message: 'bad' });
+      }
+      return succeeded(context.nodeId);
+    },
+  });
+  const instance = runner(flow([script('a', 'b'), script('b')]), executor);
+
+  await instance.execute();
+  assert.equal(instance.status, 'paused');
+
+  instance.skipStep('a');
+  await waitFor(() => instance.status === 'ended');
+
+  assert.deepEqual(visited, ['a', 'b']);
+  assert.equal(instance.steps[0].label, 'skipped');
+  assert.equal(instance.steps[0].outcome?.status, 'cancelled');
+  assert.deepEqual(instance.steps.map((step) => step.nodeId), ['a', 'b']);
+});
+
+test('jumps from a paused step to an explicit step', async () => {
+  const visited: string[] = [];
+  const executor = createNodeExecutor({
+    script: async (_tier, context) => {
+      visited.push(context.nodeId);
+      if (context.nodeId === 'b') {
+        return failed({ code: 'boom', message: 'bad' });
+      }
+      return succeeded(context.nodeId);
+    },
+  });
+  const instance = runner(flow([script('a', 'b'), script('b', 'c'), script('c')]), executor);
+
+  await instance.execute();
+  assert.equal(instance.status, 'paused');
+
+  instance.jumpToStep('c');
+  await waitFor(() => instance.status === 'ended');
+
+  assert.deepEqual(visited, ['a', 'b', 'c']);
+  assert.deepEqual(instance.steps.map((step) => step.nodeId), ['a', 'b', 'c']);
+  assert.equal(instance.result?.outcome.status, 'succeeded');
+});
+
+test('rejects operator actions when the run is not paused', async () => {
+  const executor = createNodeExecutor({ script: async () => succeeded() });
+  const instance = runner(flow([script('a')]), executor);
+
+  assert.throws(() => instance.retryStep('a'), /not paused/);
+  assert.throws(() => instance.skipStep('a'), /not paused/);
+  assert.throws(() => instance.jumpToStep('a'), /not paused/);
+});
+
 test('runs parallel fan-out', { timeout: 2000 }, async () => {
   let started = 0;
   let release!: () => void;
@@ -134,15 +226,15 @@ test('runs parallel fan-out', { timeout: 2000 }, async () => {
   });
 
   const executor = createNodeExecutor({
-    script: async (node) => {
-      if (node.id === 'left' || node.id === 'right') {
+    script: async (_tier, context) => {
+      if (context.nodeId === 'left' || context.nodeId === 'right') {
         started += 1;
         if (started === 2) {
           release();
         }
         await barrier;
       }
-      return succeeded(node.id);
+      return succeeded(context.nodeId);
     },
   });
 
@@ -156,7 +248,7 @@ test('runs parallel fan-out', { timeout: 2000 }, async () => {
 test('supports rework loops', async () => {
   let reviews = 0;
   const executor = createNodeExecutor({
-    script: async (node) => succeeded(node.id),
+    script: async (_tier, context) => succeeded(context.nodeId),
     human: async () => {
       reviews += 1;
       return reviews === 1 ? succeeded('rework') : succeeded('approve');
@@ -168,8 +260,7 @@ test('supports rework loops', async () => {
       script('start', 'review'),
       {
         id: 'review',
-        type: 'human',
-        prompt: 'Approve?',
+        tiers: [{ kind: 'human', prompt: 'Approve?' }],
         next: { rework: 'start', approve: 'done' },
       },
       script('done'),
@@ -194,7 +285,7 @@ test('supports rework loops', async () => {
 test('waits for a human response through the broker', async () => {
   const broker = new HumanTaskBroker();
   const executor = createNodeExecutor({ human: broker.handler });
-  const instance = runner(flow([{ id: 'approve', type: 'human', prompt: 'ok?' }]), executor);
+  const instance = runner(flow([human('approve')]), executor);
 
   const pending = instance.execute();
   await waitFor(() => broker.pending().length === 1);
@@ -210,8 +301,8 @@ test('waits for a human response through the broker', async () => {
 test('carries node outputs to downstream nodes', async () => {
   const received: unknown[] = [];
   const executor = createNodeExecutor({
-    agent: async (node, context) => {
-      if (node.id === 'frame') {
+    agent: async (_tier, context) => {
+      if (context.nodeId === 'frame') {
         return { outcome: { status: 'succeeded' }, output: { goal: 'ship it' } };
       }
       received.push(context.outputs);
@@ -220,10 +311,7 @@ test('carries node outputs to downstream nodes', async () => {
   });
 
   const instance = runner(
-    flow([
-      { id: 'frame', type: 'agent', instruction: 'frame', next: 'make' },
-      { id: 'make', type: 'agent', instruction: 'make' },
-    ]),
+    flow([agent('frame', 'frame', 'make'), agent('make', 'make')]),
     executor,
   );
 
@@ -237,7 +325,7 @@ test('carries node outputs to downstream nodes', async () => {
 test('passes work context to node handlers', async () => {
   const received: unknown[] = [];
   const executor = createNodeExecutor({
-    script: async (_node, context) => {
+    script: async (_tier, context) => {
       received.push(context.context);
       return succeeded('done');
     },
@@ -255,6 +343,101 @@ test('passes work context to node handlers', async () => {
   assert.deepEqual(received, [
     { repo: 'owner/repo', branch: 'feature', workspace: '/tmp/ws', issueId: '42' },
   ]);
+});
+
+test('records the live tier trace while a human tier is pending', async () => {
+  const broker = new HumanTaskBroker();
+  const executor = createNodeExecutor({
+    agent: async () => succeeded('agent-done'),
+    human: broker.handler,
+  });
+
+  const instance = runner(
+    flow([
+      {
+        id: 'gate',
+        tiers: [{ kind: 'agent', instruction: 'review' }, { kind: 'human', prompt: 'confirm?' }],
+      },
+    ]),
+    executor,
+  );
+
+  const pending = instance.execute();
+  await waitFor(() => broker.pending().length === 1);
+
+  const step = instance.steps.find((candidate) => candidate.nodeId === 'gate');
+  assert.ok(step);
+  assert.equal(step.status, 'running');
+  assert.deepEqual(step.tiers.map((tier) => tier.kind), ['agent', 'human']);
+  assert.equal(step.tiers[0].status, 'ended');
+  assert.equal(step.tiers[1].status, 'running');
+
+  broker.respondByKey(broker.pending()[0], succeeded('approved'));
+  const result = await pending;
+
+  assert.equal(result.label, 'approved');
+  assert.equal(instance.steps[0].tiers[1].status, 'ended');
+});
+
+test('cancels a running flow', async () => {
+  const executor = createNodeExecutor({
+    script: async () => {
+      await new Promise<void>(() => {});
+      return succeeded('done');
+    },
+  });
+
+  const instance = new FlowRunner({
+    definition: flow([script('a', 'b'), script('b')]),
+    goal: { id: 'g' },
+    executor,
+  });
+
+  const pending = instance.execute();
+  await waitFor(() => instance.steps.length > 0);
+  instance.cancel();
+
+  const result = await pending;
+  assert.equal(instance.status, 'ended');
+  assert.equal(result.outcome.status, 'cancelled');
+});
+
+test('pauses and resumes a flow', async () => {
+  const order: string[] = [];
+  let releaseA!: () => void;
+  const gateA = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+
+  const executor = createNodeExecutor({
+    script: async (_tier, context) => {
+      order.push(context.nodeId);
+      if (context.nodeId === 'a') {
+        await gateA;
+      }
+      return succeeded(context.nodeId);
+    },
+  });
+
+  const instance = new FlowRunner({
+    definition: flow([script('a', 'b'), script('b')]),
+    goal: { id: 'g' },
+    executor,
+  });
+
+  const pending = instance.execute();
+  await waitFor(() => order.includes('a'));
+  instance.pause();
+
+  releaseA();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(instance.suspended, true);
+  assert.deepEqual(order, ['a']);
+
+  instance.resume();
+  const result = await pending;
+  assert.equal(result.outcome.status, 'succeeded');
+  assert.deepEqual(order, ['a', 'b']);
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import type { FlowDefinition, StepType } from '@shared/model';
+import type { FlowDefinition, TierKind } from '@shared/model';
 import type { FlowRunDetail } from '@shared/api-types';
 import {
+  activeTierKind,
   collectFlowCards,
   flowDisplayStatus,
   focusStep,
@@ -12,7 +13,7 @@ import {
 } from './card-utils';
 import { StatusBadge } from './StatusBadge';
 
-type CardType = StepType | 'flow';
+type CardType = TierKind | 'flow';
 
 const columns: { key: RunColumn; label: string }[] = [
   { key: 'human', label: 'Human' },
@@ -57,7 +58,7 @@ export function FlowBoard({
       stage,
       done,
       total,
-      type: (focus?.type ?? 'flow') as CardType,
+      type: (focus ? activeTierKind(focus) ?? 'flow' : 'flow') as CardType,
     };
   });
 
@@ -113,7 +114,7 @@ export function FlowBoard({
 
                     <div className="card-note" title={node ? summaryOf(node) : undefined}>
                       {focus
-                        ? `${focus.type} · ${node ? summaryOf(node) : focus.nodeId}`
+                        ? `${activeTierKind(focus) ?? 'tier'} · ${node ? summaryOf(node) : focus.nodeId}`
                         : 'Waiting for the first step'}
                     </div>
 

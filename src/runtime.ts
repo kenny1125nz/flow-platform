@@ -1,83 +1,85 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import type {
-  AgentNode,
-  FlowError,
   FlowNode,
   Goal,
-  HumanNode,
-  OutcomeStatus,
+  HumanTier,
   RunResult,
-  ScriptNode,
+  ScriptTier,
+  Tier,
+  TierRun,
   WorkContext,
 } from './model.js';
+import { toRunResult } from './parse-result.js';
 import { failed, succeeded } from './result.js';
+import { createCascadeExecutor, type CascadeOptions, type NodeExecution, type TierHandlers } from './cascade.js';
+import type { StatsStore } from './stats.js';
 
 const execAsync = promisify(exec);
 
 export type NodeContext = {
   flowInstanceId: string;
+  nodeId: string;
+  flow: { id: string; version: string };
   goal: Goal;
   context: WorkContext;
   outputs: Readonly<Record<string, unknown>>;
+  // Live reporting of tier progress, so the run's step history reflects which tier is
+  // active while the node is still executing (e.g. a pending human tier).
+  reportTier?: (tier: TierRun) => void;
 };
 
-export type NodeHandler<T extends FlowNode = FlowNode> = (
-  node: T,
+export type TierHandler<T extends Tier = Tier> = (
+  tier: T,
   context: NodeContext,
 ) => Promise<RunResult>;
 
-export type NodeHandlers = {
-  human: NodeHandler<HumanNode>;
-  agent: NodeHandler<AgentNode>;
-  script: NodeHandler<ScriptNode>;
-};
-
 export interface NodeExecutor {
-  execute(node: FlowNode, context: NodeContext): Promise<RunResult>;
+  execute(node: FlowNode, context: NodeContext): Promise<NodeExecution>;
 }
 
-export function createNodeExecutor(handlers: Partial<NodeHandlers> = {}): NodeExecutor {
-  const resolved: NodeHandlers = {
-    human:
-      handlers.human ??
-      (async () => {
-        throw new Error('no human handler configured');
-      }),
+export type CreateNodeExecutorOptions = Pick<CascadeOptions, 'policy' | 'resolvePolicy' | 'stats' | 'now' | 'random'>;
+
+export function createNodeExecutor(
+  handlers: Partial<TierHandlers> = {},
+  options: CreateNodeExecutorOptions = {},
+): NodeExecutor {
+  const resolved: TierHandlers = {
+    script: handlers.script ?? localScriptHandler,
     agent:
       handlers.agent ??
       (async () => {
         throw new Error('no agent handler configured');
       }),
-    script: handlers.script ?? localScriptHandler,
+    human:
+      handlers.human ??
+      (async () => {
+        throw new Error('no human handler configured');
+      }),
   };
 
-  return {
-    execute(node, context) {
-      switch (node.type) {
-        case 'human':
-          return resolved.human(node, context);
-        case 'agent':
-          return resolved.agent(node, context);
-        case 'script':
-          return resolved.script(node, context);
-      }
-    },
-  };
+  return createCascadeExecutor({
+    handlers: resolved,
+    policy: options.policy,
+    resolvePolicy: options.resolvePolicy,
+    stats: options.stats,
+    now: options.now,
+    random: options.random,
+  });
 }
 
-export const localScriptHandler: NodeHandler<ScriptNode> = async (node, context) => {
+export const localScriptHandler: TierHandler<ScriptTier> = async (tier, context) => {
   const env = {
     ...process.env,
     FLOW_INSTANCE_ID: context.flowInstanceId,
     FLOW_GOAL: JSON.stringify(context.goal),
     FLOW_CONTEXT: JSON.stringify(context.context),
-    FLOW_ARGS: JSON.stringify(node.args ?? {}),
+    FLOW_ARGS: JSON.stringify(tier.args ?? {}),
     FLOW_OUTPUTS: JSON.stringify(context.outputs),
   };
 
   try {
-    const { stdout } = await execAsync(node.run, { env });
+    const { stdout } = await execAsync(tier.run, { env });
     return parseScriptResult(stdout) ?? succeeded();
   } catch (error) {
     return failed({
@@ -101,7 +103,7 @@ function parseScriptResult(stdout: string): RunResult | null {
       continue;
     }
     try {
-      const result = toRunResult(JSON.parse(candidate));
+      const result = toRunResult(JSON.parse(candidate), 'script.error');
       if (result) {
         return result;
       }
@@ -113,56 +115,6 @@ function parseScriptResult(stdout: string): RunResult | null {
   return null;
 }
 
-function toRunResult(value: unknown): RunResult | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (!('outcome' in record) && !('label' in record) && !('error' in record)) {
-    return null;
-  }
-
-  const error = normalizeError(record.error);
-  const outcome = normalizeOutcome(record.outcome, error);
-  const label = typeof record.label === 'string' ? record.label : undefined;
-  const output = 'output' in record ? record.output : undefined;
-
-  return {
-    outcome: { status: outcome },
-    ...(label === undefined ? {} : { label }),
-    ...(error === undefined ? {} : { error }),
-    ...(output === undefined ? {} : { output }),
-  };
-}
-
-function normalizeOutcome(value: unknown, error: FlowError | undefined): OutcomeStatus {
-  if (value === 'succeeded' || value === 'failed' || value === 'cancelled') {
-    return value;
-  }
-  return error ? 'failed' : 'succeeded';
-}
-
-function normalizeError(value: unknown): FlowError | undefined {
-  if (typeof value === 'string') {
-    return { code: 'script.error', message: value };
-  }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return undefined;
-  }
-
-  const record = value as Record<string, unknown>;
-  const code = typeof record.code === 'string' ? record.code : 'script.error';
-  const message = typeof record.message === 'string' ? record.message : undefined;
-  const hint = typeof record.hint === 'string' ? record.hint : undefined;
-
-  return {
-    code,
-    ...(message === undefined ? {} : { message }),
-    ...(hint === undefined ? {} : { hint }),
-  };
-}
-
 type PendingHumanTask = {
   resolve: (result: RunResult) => void;
 };
@@ -170,8 +122,8 @@ type PendingHumanTask = {
 export class HumanTaskBroker {
   private readonly pendingTasks = new Map<string, PendingHumanTask>();
 
-  readonly handler: NodeHandler<HumanNode> = (node, context) =>
-    this.wait(context.flowInstanceId, node.id);
+  readonly handler = (tier: HumanTier, context: NodeContext): Promise<RunResult> =>
+    this.wait(context.flowInstanceId, context.nodeId);
 
   wait(flowInstanceId: string, nodeId: string): Promise<RunResult> {
     const key = taskKey(flowInstanceId, nodeId);

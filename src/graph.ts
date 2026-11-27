@@ -95,6 +95,7 @@ export function validateFlowDefinition(flow: FlowDefinition): void {
       issues.push({ path: `nodes.${node.id}`, message: 'duplicate node id' });
     }
     ids.add(node.id);
+    validateTiers(node, issues);
   }
 
   for (const node of nodes) {
@@ -103,6 +104,20 @@ export function validateFlowDefinition(flow: FlowDefinition): void {
 
   if (issues.length > 0) {
     throw new GraphValidationError(issues);
+  }
+}
+
+function validateTiers(node: FlowNode, issues: GraphIssue[]): void {
+  const path = `nodes.${node.id}.tiers`;
+  if (node.tiers.length === 0) {
+    issues.push({ path, message: 'a node must declare at least one tier' });
+  }
+  const kinds = new Set<string>();
+  for (const tier of node.tiers) {
+    if (kinds.has(tier.kind)) {
+      issues.push({ path, message: `duplicate tier kind "${tier.kind}"` });
+    }
+    kinds.add(tier.kind);
   }
 }
 

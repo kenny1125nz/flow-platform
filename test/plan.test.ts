@@ -13,7 +13,7 @@ function oneNodeFlow(id: string, nodeId: string): FlowDefinition {
   return {
     id,
     version: '1',
-    stages: [{ id: 'main', nodes: [{ id: nodeId, type: 'script', run: `echo ${nodeId}` }] }],
+    stages: [{ id: 'main', nodes: [{ id: nodeId, tiers: [{ kind: 'script', run: `echo ${nodeId}` }] }] }],
   };
 }
 
@@ -24,9 +24,9 @@ function plan(nodes: PlanDefinition['nodes']): PlanDefinition {
 test('runs plan nodes in order and consumes each flow result', async () => {
   const order: string[] = [];
   const executor = createNodeExecutor({
-    script: async (node, context: NodeContext) => {
-      order.push(`${context.goal.id}:${node.id}`);
-      return node.id === 'x' ? succeeded('done') : succeeded('finished');
+    script: async (_tier, context: NodeContext) => {
+      order.push(`${context.goal.id}:${context.nodeId}`);
+      return context.nodeId === 'x' ? succeeded('done') : succeeded('finished');
     },
   });
 
@@ -64,15 +64,15 @@ test('runs plan branches in parallel', { timeout: 2000 }, async () => {
   });
 
   const executor = createNodeExecutor({
-    script: async (node) => {
-      if (node.id === 'y' || node.id === 'z') {
+    script: async (_tier, context) => {
+      if (context.nodeId === 'y' || context.nodeId === 'z') {
         started += 1;
         if (started === 2) {
           release();
         }
         await barrier;
       }
-      return succeeded(node.id);
+      return succeeded(context.nodeId);
     },
   });
 
@@ -106,9 +106,9 @@ test('runs plan branches in parallel', { timeout: 2000 }, async () => {
 test('routes a plan on the flow error code', async () => {
   const visited: string[] = [];
   const executor = createNodeExecutor({
-    script: async (node, context) => {
-      visited.push(`${context.goal.id}:${node.id}`);
-      if (node.id === 'x') {
+    script: async (_tier, context) => {
+      visited.push(`${context.goal.id}:${context.nodeId}`);
+      if (context.nodeId === 'x') {
         return failed({ code: 'bad' });
       }
       return succeeded('recovered');
