@@ -381,3 +381,102 @@ test('run traces persist their sampled and escalation flags', async () => {
   assert.equal(tiers[0].confidence, 0.5);
   assert.equal(tiers[1].kind, 'human');
 });
+
+test('an autonomous run drops the human tier so the agent carries the work', async () => {
+  const humanRuns: string[] = [];
+  const executor = executorWith({
+    agent: async () => ({ ...succeeded('agent-ready'), confidence: 0.95 }),
+    human: async (_tier, context) => {
+      humanRuns.push(context.nodeId);
+      return succeeded('human-ready');
+    },
+  });
+
+  const instance = new FlowRunner({
+    definition: flow([gateNode()]),
+    goal: { id: 'g' },
+    context: { autonomy: 'autonomous' },
+    executor,
+  });
+  const result = await instance.execute();
+
+  assert.equal(result.label, 'agent-ready');
+  assert.deepEqual(humanRuns, []);
+  assert.equal(instance.steps[0].tiers.length, 1);
+  assert.equal(instance.steps[0].tiers[0].kind, 'agent');
+});
+
+test('an autonomous run keeps the human tier when the policy requires it', async () => {
+  const policy = makePolicy('p', '1', {
+    rules: [{ when: { risk: 'structural' }, config: { requireHuman: true } }],
+  });
+  const humanRuns: string[] = [];
+  const executor = executorWith(
+    {
+      agent: async () => ({ ...succeeded('agent-ready'), confidence: 0.95 }),
+      human: async (_tier, context) => {
+        humanRuns.push(context.nodeId);
+        return succeeded('agent-ready');
+      },
+    },
+    { policy },
+  );
+
+  const instance = new FlowRunner({
+    definition: flow([gateNode(undefined, { risk: 'structural' })]),
+    goal: { id: 'g' },
+    context: { autonomy: 'autonomous' },
+    executor,
+  });
+  await instance.execute();
+
+  assert.deepEqual(humanRuns, ['gate']);
+  assert.equal(instance.steps[0].tiers.length, 2);
+});
+
+test('an autonomous run ignores the confidence bar and keeps flowing', async () => {
+  const policy = makePolicy('p', '1', { qualityBar: 0.9 });
+  const executor = executorWith(
+    {
+      agent: async () => ({ ...succeeded('ready'), confidence: 0.1 }),
+      human: async () => succeeded('human-ready'),
+    },
+    { policy },
+  );
+
+  const instance = new FlowRunner({
+    definition: flow([gateNode()]),
+    goal: { id: 'g' },
+    context: { autonomy: 'autonomous' },
+    executor,
+  });
+  const result = await instance.execute();
+
+  assert.equal(result.outcome.status, 'succeeded');
+  assert.equal(result.label, 'ready');
+  assert.equal(instance.steps[0].tiers.length, 1);
+  assert.equal(instance.steps[0].tiers[0].escalated, false);
+});
+
+test('a supervised run keeps the human anchor even when the agent meets its bar', async () => {
+  const humanRuns: string[] = [];
+  const executor = executorWith({
+    agent: async () => ({ ...succeeded('agent-ready'), confidence: 0.95 }),
+    human: async (_tier, context) => {
+      humanRuns.push(context.nodeId);
+      return succeeded('agent-ready');
+    },
+  });
+
+  const instance = new FlowRunner({
+    definition: flow([gateNode()]),
+    goal: { id: 'g' },
+    context: { autonomy: 'supervised' },
+    executor,
+  });
+  await instance.execute();
+
+  assert.deepEqual(humanRuns, ['gate']);
+  assert.equal(instance.steps[0].tiers[1].kind, 'human');
+  assert.equal(instance.steps[0].tiers[1].sampled, true);
+});

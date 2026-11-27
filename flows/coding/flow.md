@@ -10,6 +10,12 @@ Turns a loose goal into a landed code change through a fixed contract:
 - **Deliver** commits the change and opens a pull request, then a reviewer confirms it.
 - **Land** squash-merges the pull request.
 
-Confirmation nodes are joint-effort: an agent tier evaluates first and reports a
-confidence; the human tier anchors the verdict when the agent is not confident enough
-(see `policy.json`).
+Confirmation nodes are human-executed because the decision carries **accountability**: an
+agent may pre-analyze the spec or results and report a confidence, but the person owns the
+verdict — they supply the context, judgment, and sign-off that the work is acceptable.
+Deterministic checks belong in the script tier, which is why `verify` runs automatically
+before any person is asked to confirm.
+
+A run started with `autonomy: autonomous` (e.g. a simple code fix) lets the agent take over
+those confirmation steps; a policy rule can still set `requireHuman` for high-risk work
+(`risk: structural`) so a person always signs off there.

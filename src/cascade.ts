@@ -24,10 +24,10 @@ export type CascadeOptions = {
   random?: () => number;
 };
 
-// The executor that realizes "every node is the joint effort of script, agent, and
-// human". It runs the node's tier stack in canonical order, accepts the first tier whose
-// output meets its confidence bar, and escalates otherwise — until the human anchor, the
-// last resort. Delegation and sampling are decided per run from the runtime statistics.
+// Runs a node's declared executor, with the remaining tiers acting as fallbacks. In a
+// supervised run the human tier stays as the anchor; in an autonomous run it is dropped
+// unless policy requires it. A tier that meets its confidence bar is accepted, and an
+// earlier accepted verdict can only be overridden by a later sampled human check.
 export function createCascadeExecutor(options: CascadeOptions) {
   const policy = options.policy;
   const resolvePolicy = options.resolvePolicy;
@@ -39,6 +39,7 @@ export function createCascadeExecutor(options: CascadeOptions) {
     async execute(node: FlowNode, context: NodeContext): Promise<NodeExecution> {
       const resolved = resolvePolicy?.(context.flow) ?? policy ?? DEFAULT_FALLBACK;
       const config = resolveTierConfig(node, resolved);
+      const autonomous = context.context.autonomy === 'autonomous';
       const activeKinds = selectTierKinds(node, context, resolved, config, stats, random);
 
       const tiers = node.tiers
@@ -72,6 +73,8 @@ export function createCascadeExecutor(options: CascadeOptions) {
         tierRun.confidence = result.confidence;
         tierRun.coverage = result.coverage;
         tierRun.error = result.error;
+        tierRun.stdout = result.stdout;
+        tierRun.stderr = result.stderr;
         tierRun.finishedAt = now().toISOString();
         tierRun.status = 'ended';
         tierRun.escalated = false;
@@ -84,7 +87,11 @@ export function createCascadeExecutor(options: CascadeOptions) {
           continue;
         }
 
-        const meetsBar = tierMeetsBar(tier.kind, result, config, resolved);
+        // A run that is explicitly autonomous does not gate on confidence: the executor's
+        // verdict is accepted as-is so the flow keeps moving. Errors still escalate/route.
+        const meetsBar = autonomous
+          ? result.error === undefined
+          : tierMeetsBar(tier.kind, result, config, resolved);
         if (!meetsBar) {
           tierRun.escalated = true;
           lastError = result.error ?? {
@@ -134,9 +141,10 @@ async function runTier(handlers: TierHandlers, tier: Tier, context: NodeContext)
   }
 }
 
-// Decides which tiers participate in this run. The node's stack minus the human tier,
-// when the stats show the tier below human has been agreeing with the human anchor — and
-// minus a random sample of those delegations, so calibration data keeps flowing.
+// Decides which tiers participate in this run. In an autonomous run the human tier is
+// dropped so the cheaper executor carries the work — unless policy marks the node as
+// requiring a human. In a supervised run the human tier stays as the anchor, and may be
+// delegated away only once the runtime statistics show sustained agreement.
 function selectTierKinds(
   node: FlowNode,
   context: NodeContext,
@@ -149,6 +157,11 @@ function selectTierKinds(
   if (!kinds.includes('human') || kinds.length < 2) {
     return kinds;
   }
+
+  if (context.context.autonomy === 'autonomous') {
+    return config.requireHuman ? kinds : kinds.filter((kind) => kind !== 'human');
+  }
+
   if (!stats) {
     return kinds;
   }

@@ -26,13 +26,13 @@ it keeps each executor honest and reveals when a task has become formal enough t
 |                | Plan                                   | Flow                                |
 |----------------|----------------------------------------|-------------------------------------|
 | Represents     | a larger initiative                    | an individual piece of work         |
-| Its units are  | running flow instances                 | nodes (each a tier stack)           |
+| Its units are  | running flow instances                 | nodes (each with its executor)      |
 | Executor does  | start, track, and sequence flows       | run the nodes of one flow           |
 | Looks inside?  | no — a flow is treated as a unit       | yes — the nodes are its concern     |
 
 The plan level is deliberately simpler: its units are whole flow runs, so it only needs to
 start them, follow their status, and move on in the right order. The flow level is richer:
-its units are nodes, each executed as a cascade of tiers.
+its units are nodes, each executed by the executor that fits its task.
 
 ---
 
@@ -67,6 +67,16 @@ results guides **re-authoring** (for example, when a recurring agent judgment ha
 formal enough to express as a script); it does not select the executor for an individual
 run.
 
+**Autonomy is an explicit run-level input, not a statistical guess.** A run started with
+`autonomy: autonomous` lets the engine drop human executors so the next cheaper executor
+carries the work — useful when the goal is low-risk, such as a simple code fix. Policy can
+still mark a node `requireHuman` (for example, `risk: structural`) to protect high-risk
+steps from being delegated. A `supervised` run (the default) keeps the human anchor. In
+both modes the executor is decided before the run from the node, the policy, and the run's
+autonomy setting — never inferred from past performance mid-run. An autonomous run also does
+**not gate on confidence**: the executor's verdict is accepted as-is so the flow keeps
+moving, while declared errors still escalate or route.
+
 There is no separate "gate" concept. A gate is just a node with acceptance criteria whose
 outcomes happen to route to accepted / rejected / rework through its `next` map. Its special
 property is *coverage* — the share of criteria formalized into deterministic checks — and
@@ -98,9 +108,10 @@ definition fails early, and nothing runs against it.
 
 **How an executor's output is judged is not definition, it is policy** — also data, but
 dynamic. A flow policy sets the acceptance bar for the chosen executor, whether its verdict
-is binding, and when escalation to a fallback is allowed; its rules match node
-**annotations** (`risk: structural`, `domain: coding`) so a whole class of work can be
-steered without touching a definition. Policy tunes quality and escalation behavior — it
+is binding, when escalation to a fallback is allowed, and whether a node **requires a
+human** even in an autonomous run; its rules match node **annotations**
+(`risk: structural`, `domain: coding`) so a whole class of work can be steered without
+touching a definition. Policy tunes quality, escalation, and human-requirement behavior — it
 never swaps the executor the task calls for.
 
 ---
@@ -108,10 +119,11 @@ never swaps the executor the task calls for.
 ## 4. Execution
 
 A **Flow** loads a validated definition and executes its nodes as declared. Each node runs
-through its **declared executor**: resolve the policy that governs acceptance, run the
-executor, and accept its output when it meets its bar. If the executor cannot complete, the
-node follows its declared fallback, if any. The flow owns the state of the run — what is
-running, paused, or ended — and is the single source of truth for how that flow progresses.
+through its **declared executor** (adjusted by the run's autonomy setting): resolve the
+policy that governs acceptance, select the active executors, and accept an output when it
+meets its bar. If the executor cannot complete, the node follows its declared fallback, if
+any. The flow owns the state of the run — what is running, paused, or ended — and is the
+single source of truth for how that flow progresses.
 
 A **Plan** executes the same kind of idea, one level up: it starts running instances of
 flows, tracks their status, runs independent ones in parallel, and does not look inside a
@@ -124,14 +136,14 @@ flow of nodes — and within each node, the executor that fits the work.
 
 ## 5. Dispatch, callbacks, and the message bus
 
-For now, execution is local: a tier runs and **returns its result directly** to the
-executor. The callback and message-bus design below is deferred until work moves off the
+For now, execution is local: an executor runs and **returns its result directly** to the
+platform. The callback and message-bus design below is deferred until work moves off the
 machine.
 
 When execution may happen on another machine, **callbacks become a firm requirement**. The
 platform hands off the work with a one-shot instruction and does not hold onto it; the
 running work reports back through a **callback** carrying a **correlation ID**, and the
-platform uses that ID to match the result to the waiting tier and continue the flow.
+platform uses that ID to match the result to the waiting executor and continue the flow.
 
 At that point **a message bus** is also required. It carries dispatch and callbacks between
 the platform and runners, so the two sides are decoupled and do not need to reach each other
@@ -182,16 +194,15 @@ executor earns and keeps trust.
 
 - Every executor run records its outcome, label, confidence, coverage, and escalation in the
   node's **run trace**.
-- Traces aggregate into statistics: agreement between a delegated verdict and the human
+- Traces aggregate into statistics: agreement between an automated verdict and the human
   check that samples it, escalation rates, and coverage.
 - Measurement does **not** pick the executor for a run. It serves two purposes: it keeps
   every executor calibrated, and it is the signal that a task's character may have changed —
   for example, a recurring agent judgment that has become formal enough to re-author as a
   script. Moving work to a different executor is a deliberate re-authoring, reviewed like any
   other definition change, not an automatic per-run substitution.
-- Calibration samples keep a human check arriving at a low rate, so trust in a delegated
-  verdict never silently drifts; a sampled human that disagrees **overrides** the delegated
-  verdict.
+- Calibration samples keep a human check arriving at a low rate, so trust in an automated
+  verdict never silently drifts; a sampled human that disagrees **overrides** it.
 
 The quality bar is the constraint; cost and time are the objective. The engine optimizes the
 latter subject to the former, and never the other way around.

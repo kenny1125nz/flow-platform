@@ -27,7 +27,7 @@ const typeInitial: Record<TierKind | 'flow', string> = {
   flow: 'F',
 };
 
-type RunDetailTab = 'facts' | 'step' | 'diagram' | 'steps';
+type RunDetailTab = 'facts' | 'step' | 'diagram' | 'steps' | 'logs';
 
 export function OperationModal({
   flowRun,
@@ -155,6 +155,17 @@ export function OperationModal({
               onClick={() => setActiveTab('steps')}
             >
               Execution steps
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id={tabId('logs')}
+              aria-selected={activeTab === 'logs'}
+              aria-controls={panelId('logs')}
+              className={`tab${activeTab === 'logs' ? ' active' : ''}`}
+              onClick={() => setActiveTab('logs')}
+            >
+              Logs
             </button>
           </div>
 
@@ -338,6 +349,17 @@ export function OperationModal({
               </table>
             </div>
           </section>
+
+          <section
+            id={panelId('logs')}
+            role="tabpanel"
+            aria-labelledby={tabId('logs')}
+            hidden={activeTab !== 'logs'}
+            className="modal-section"
+          >
+            <h3>Execution logs</h3>
+            <StepLogs flowRun={flowRun} />
+          </section>
         </div>
       </div>
     </div>,
@@ -445,6 +467,64 @@ function latestStepOutput<T>(steps: NodeRun[], nodeId: string): T | undefined {
     }
   }
   return undefined;
+}
+
+function StepLogs({ flowRun }: { flowRun: FlowRunDetail }) {
+  const groups = flowRun.steps
+    .map((step, index) => ({
+      step,
+      index,
+      tiers: (step.tiers ?? []).filter(
+        (tier) =>
+          (tier.kind === 'script' || tier.kind === 'agent') &&
+          (tier.stdout !== undefined || tier.stderr !== undefined),
+      ),
+    }))
+    .filter((group) => group.tiers.length > 0);
+
+  if (groups.length === 0) {
+    return <div className="modal-empty">No script or agent output has been captured yet.</div>;
+  }
+
+  return (
+    <div className="log-list">
+      {groups.map(({ step, index, tiers }) => (
+        <section key={`${step.nodeId}-${index}`} className="log-group">
+          <header className="log-group-head">
+            <span className="log-node">{step.nodeId}</span>
+            <StatusBadge status={displayStatus(step)} />
+            {step.startedAt ? (
+              <span className="muted small">{formatDateTime(step.startedAt)}</span>
+            ) : null}
+          </header>
+          {tiers.map((tier) => (
+            <div key={tier.kind} className="log-tier">
+              <div className="log-tier-head">
+                <span className={`log-kind log-kind-${tier.kind}`}>{tier.kind}</span>
+                {tier.finishedAt ? (
+                  <span className="muted small">{formatDateTime(tier.finishedAt)}</span>
+                ) : null}
+              </div>
+              <LogBlock label="stdout" text={tier.stdout} />
+              <LogBlock label="stderr" text={tier.stderr} tone="error" />
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function LogBlock({ label, text, tone }: { label: string; text?: string; tone?: 'error' }) {
+  if (!text) {
+    return null;
+  }
+  return (
+    <div className={`log-block${tone === 'error' ? ' log-stderr' : ''}`}>
+      <div className="log-label">{label}</div>
+      <pre>{text}</pre>
+    </div>
+  );
 }
 
 function OperatorActions({

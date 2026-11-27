@@ -11,14 +11,14 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">F</span>
-          <span>Flow Platform</span>
+          <span className="brand-mark">S</span>
+          <span>Streams</span>
         </div>
         <nav>
           <NavLink to="/" end>
-            Board
+            Runlets
           </NavLink>
-          <NavLink to="/definitions">Definitions</NavLink>
+          <NavLink to="/definitions">Blueprints</NavLink>
         </nav>
         <div className="sidebar-note">Live updates via SSE</div>
       </aside>
