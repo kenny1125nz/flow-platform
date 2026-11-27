@@ -110,6 +110,7 @@ export function OperationModal({
         </header>
 
         <div className="modal-body">
+          <RunLinks flowRun={flowRun} />
           <div className="tab-bar modal-tabs" role="tablist" aria-label="Run details">
             <button
               type="button"
@@ -280,7 +281,7 @@ export function OperationModal({
             role="tabpanel"
             aria-labelledby={tabId('diagram')}
             hidden={activeTab !== 'diagram'}
-            className="modal-section"
+            className="modal-section modal-diagram-section"
           >
             <h3>Flow diagram</h3>
             <div className="modal-diagram">
@@ -342,6 +343,108 @@ export function OperationModal({
     </div>,
     document.body,
   );
+}
+
+type RunLink = {
+  label: string;
+  href: string;
+  detail?: string;
+};
+
+function RunLinks({ flowRun }: { flowRun: FlowRunDetail }) {
+  const links = runLinks(flowRun);
+  if (links.length === 0) {
+    return null;
+  }
+
+  return (
+    <nav className="modal-links" aria-label="Key links">
+      {links.map((link) => (
+        <a
+          key={link.label}
+          className="modal-link"
+          href={link.href}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          <span className="modal-link-label">{link.label}</span>
+          {link.detail ? <span className="modal-link-detail">{link.detail}</span> : null}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function runLinks(flowRun: FlowRunDetail): RunLink[] {
+  const repo = parseRepo(flowRun.context?.repo);
+  const repoBase = repo ? `https://github.com/${repo.owner}/${repo.name}` : undefined;
+  const branch =
+    latestStepOutput<{ branch?: string }>(flowRun.steps, 'prepare-branch')?.branch ??
+    flowRun.context?.branch;
+  const issue = latestStepOutput<{ issue?: { number?: number; url?: string } }>(
+    flowRun.steps,
+    'create-ticket',
+  )?.issue;
+  const pr = latestStepOutput<{ pr?: { number?: number; url?: string } }>(
+    flowRun.steps,
+    'commit-and-pr',
+  )?.pr;
+
+  const links: RunLink[] = [];
+
+  if (repoBase) {
+    links.push({ label: 'GitHub', href: repoBase, detail: `${repo?.owner}/${repo?.name}` });
+  }
+  if (pr?.url) {
+    links.push({
+      label: 'Pull request',
+      href: pr.url,
+      detail: pr.number ? `#${pr.number}` : undefined,
+    });
+  }
+  if (issue?.url) {
+    links.push({
+      label: 'Issue',
+      href: issue.url,
+      detail: issue.number ? `#${issue.number}` : undefined,
+    });
+  } else if (repoBase && flowRun.context?.issueId) {
+    links.push({
+      label: 'Issue',
+      href: `${repoBase}/issues/${flowRun.context.issueId}`,
+      detail: `#${flowRun.context.issueId}`,
+    });
+  }
+  if (repoBase && branch) {
+    links.push({ label: 'Branch', href: `${repoBase}/tree/${branch}`, detail: branch });
+  }
+
+  return links;
+}
+
+function parseRepo(repo?: string): { owner: string; name: string } | undefined {
+  if (!repo) {
+    return undefined;
+  }
+  const cleaned = repo.trim().replace(/\.git$/, '').replace(/\/$/, '');
+  const github = cleaned.match(/github\.com[:/]([^/]+)\/([^/]+)$/);
+  if (github) {
+    return { owner: github[1], name: github[2] };
+  }
+  const parts = cleaned.split('/');
+  if (parts.length === 2 && parts[0] && parts[1]) {
+    return { owner: parts[0], name: parts[1] };
+  }
+  return undefined;
+}
+
+function latestStepOutput<T>(steps: NodeRun[], nodeId: string): T | undefined {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    if (steps[index].nodeId === nodeId && steps[index].output !== undefined) {
+      return steps[index].output as T;
+    }
+  }
+  return undefined;
 }
 
 function OperatorActions({

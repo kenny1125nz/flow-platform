@@ -10,12 +10,14 @@ another or in parallel. The same idea is applied at two levels.
 Both are flows. They differ only in what their units are, and therefore in how much the
 executor has to know.
 
-Within a flow, every node is realized by one further idea: **a node is not typed as human,
-agent, or script — it is the joint effort of all three.** Each node declares a tier stack
-(script → agent → human), executed cheapest-first, escalating on confidence, with the human
-as the anchor and last resort. The platform measures every tier's contribution and uses that
-statistics to continuously move work down the ladder — from human to agent to script — as
-fast as the evidence allows, subject to a declared quality bar.
+Within a flow, every node is realized by one further idea: **each node is assigned the
+executor best suited to the character of its task — script, agent, or human.** Code is used
+when the work can be reduced to explicit rules; an agent when the work resists rules but can
+be guided with a fixed toolset and checked against deterministic criteria; a person when the
+work needs expert context, judgment, taste, feedback, or accountability. The choice is a
+property of the task, not a verdict from historical statistics. Measurement still matters —
+it keeps each executor honest and reveals when a task has become formal enough to re-author
+— but it does not decide who runs a given step.
 
 ---
 
@@ -34,20 +36,36 @@ its units are nodes, each executed as a cascade of tiers.
 
 ---
 
-## 2. Units: nodes as the joint effort of three
+## 2. Units: nodes executed by the executor that fits
 
-At the **flow** level, every node is the same shape: a goal, a **tier stack**, a routing
-map, and optional acceptance criteria and annotations.
+At the **flow** level, every node is the same shape: a goal, its **chosen executor**, a
+routing map, and optional acceptance criteria and annotations.
 
-- **Script tier** — deterministic work: a command, an integration, a check.
-- **Agent tier** — judgment work: a one-shot instruction, producing an outcome, a label,
-  and a **confidence** in its verdict.
-- **Human tier** — the anchor: authority and accountability, with a prompt and an assignee.
+The executor is selected by the characteristics of the task, not by which executor has
+scored best historically:
 
-The tiers cooperate in canonical order — **script → agent → human** — trying to cover as
-much as possible with the earlier, cheaper tiers, and avoiding the later ones when coverage
-and confidence are sufficient. The cascade accepts the first tier that meets its
-**acceptance bar**; a tier that cannot confidently answer **escalates** to the next one.
+- **Script (code) — formalizable work.** Use a script when the task can be abstracted into
+  specific rules and a deterministic sequence of steps: given these inputs, perform these
+  transformations, and accept when this condition holds. Whenever the rules can be stated
+  honestly, code is the cheapest, fastest, and most reliable executor.
+- **Agent — toolable judgment.** Use an agent when the task is hard to express as rules but
+  still has a fixed set of tools and a known action space: the agent can be instructed,
+  handed those tools, and — ideally — its result can be verified by deterministic criteria
+  or logic. The deterministic check is what makes the agent safe: it exercises judgment,
+  while acceptance stays objective.
+- **Human — irreplaceable judgment.** Use a person when neither code nor an agent can carry
+  the work, specifically when the value is (1) providing expert input that cannot be
+  elicited another way — context, decisions, taste, feedback — or (2) accountability, where
+  someone must own the outcome. A human is not a fallback for "hard" work; a human is the
+  right executor for judgment and responsibility.
+
+The executor is authored for the node, not guessed per run. A node may still declare an
+escalation path for the case where its chosen executor cannot complete — an agent whose
+output fails deterministic verification, or a script that meets a genuinely unformalized
+edge — but escalation is an exception, not a competition among the three. Measurement of
+results guides **re-authoring** (for example, when a recurring agent judgment has become
+formal enough to express as a script); it does not select the executor for an individual
+run.
 
 There is no separate "gate" concept. A gate is just a node with acceptance criteria whose
 outcomes happen to route to accepted / rejected / rework through its `next` map. Its special
@@ -57,8 +75,8 @@ that its confidence is the deliverable.
 At the **plan** level, the unit is simply a **running instance of a flow**.
 
 Either way, a unit has a lifecycle the platform understands: running, paused, or ended. A
-human tier is simply running until the person responds. This shared notion of state is what
-lets the same platform, and the same presentation, work at both levels.
+human-executed node is simply running until the person responds. This shared notion of state
+is what lets the same platform, and the same presentation, work at both levels.
 
 ---
 
@@ -68,37 +86,39 @@ Both a plan and a flow are described as data — JSON, constrained by a schema.
 
 - The schema defines what a valid definition can be, and every definition is validated
   before it can be stored or run.
-- A flow definition groups its nodes into stages and substages. Each node declares its tier
-  stack and names its successor(s) — directly for one outcome, one or several in parallel,
-  or by mapping labels (positive options and error codes) to nodes — defining order,
-  branching, and error routing.
+- A flow definition groups its nodes into stages and substages. Each node declares its
+  executor — script, agent, or human — plus any fallback, and names its successor(s) —
+  directly for one outcome, one or several in parallel, or by mapping labels (positive
+  options and error codes) to nodes — defining order, branching, and error routing.
 - A plan declares its sub-tasks as nodes, each a material goal paired with the flow that
   should achieve it, and uses the same successor mapping.
 
 Because definitions are data, they are versionable, comparable, and checkable. An invalid
 definition fails early, and nothing runs against it.
 
-**How the tiers cooperate is not definition, it is policy** — also data, but dynamic. A flow
-policy sets the acceptance bar per tier, whether a tier's verdict is binding, and the
-delegation thresholds; its rules match node **annotations** (`risk: structural`,
-`domain: coding`) so a whole class of work can be steered without touching a definition.
-Raising a confidence bar never requires a new definition version.
+**How an executor's output is judged is not definition, it is policy** — also data, but
+dynamic. A flow policy sets the acceptance bar for the chosen executor, whether its verdict
+is binding, and when escalation to a fallback is allowed; its rules match node
+**annotations** (`risk: structural`, `domain: coding`) so a whole class of work can be
+steered without touching a definition. Policy tunes quality and escalation behavior — it
+never swaps the executor the task calls for.
 
 ---
 
 ## 4. Execution
 
 A **Flow** loads a validated definition and executes its nodes as declared. Each node runs
-through the **cascade executor**: resolve policy, select tiers, run script → agent → human,
-accept the first that meets its bar. The flow owns the state of the run — what is running,
-paused, or ended — and is the single source of truth for how that flow progresses.
+through its **declared executor**: resolve the policy that governs acceptance, run the
+executor, and accept its output when it meets its bar. If the executor cannot complete, the
+node follows its declared fallback, if any. The flow owns the state of the run — what is
+running, paused, or ended — and is the single source of truth for how that flow progresses.
 
 A **Plan** executes the same kind of idea, one level up: it starts running instances of
 flows, tracks their status, runs independent ones in parallel, and does not look inside a
 flow.
 
 So the platform can be understood at both levels: a plan of flows, and within each flow, a
-flow of nodes — and within each node, a cascade of tiers.
+flow of nodes — and within each node, the executor that fits the work.
 
 ---
 
@@ -133,19 +153,19 @@ execution. The exact resource target will be decided once this trade-off is anal
 
 ---
 
-## 6. Reliability is designed per tier, and evolves by measurement
+## 6. Reliability is designed per executor, and measured over time
 
-Each tier is a serious engineering target, not an afterthought. A tier should **manage
-exceptional scenarios as much as it reasonably can on its own** — handling known edge cases
-and recovering where it is safe to do so. It **fails fast**; there are no retries.
+Each executor is a serious engineering target, not an afterthought. An executor should
+**manage exceptional scenarios as much as it reasonably can on its own** — handling known
+edge cases and recovering where it is safe to do so. It **fails fast**; there are no retries.
 
-Within a node, a failing tier is not a node failure — it is an **escalation**. The cascade
-moves to the next tier, and the human anchor is the last resort. When a node as a whole
-cannot resolve a problem, it must report a structured **error** rather than simply failing.
-The error describes what happened and carries a **handling hint** — and that pair is the
-node's hand-off to the flow, so the **flow can make a routing decision**: take an alternate
-path, fall back, or stop. The hint can also be handed to an AI agent as instructions when an
-agent is the one that handles the error.
+Within a node, a failing executor is not automatically a node failure — if the node declares
+a fallback, the work **escalates** to it. When a node as a whole cannot resolve a problem, it
+must report a structured **error** rather than simply failing. The error describes what
+happened and carries a **handling hint** — and that pair is the node's hand-off to the flow,
+so the **flow can make a routing decision**: take an alternate path, fall back, or stop. The
+hint can also be handed to an AI agent as instructions when an agent is the one that handles
+the error.
 
 **Expected errors are declared** as part of the node contract. Anything **unexpected** has
 no matching route, so the platform does not guess — it **pauses for human intervention** and
@@ -155,22 +175,26 @@ At the plan level the same attitude applies to flows: a flow that cannot continu
 visible to the plan and to the people watching it, rather than silently stalling the
 initiative.
 
-### The evolution loop
+### The measurement loop
 
-Confidence can never reach 100% — but it can be **measured**, and the measurement is what
-moves work down the ladder.
+Confidence can never reach 100% — but it can be **measured**, and measurement is how each
+executor earns and keeps trust.
 
-- Every tier run records its outcome, label, confidence, coverage, and escalation in the
-  node's **tier trace**.
-- Traces aggregate into statistics: **agreement** between the tier below human and the
-  human anchor, escalation rates, and coverage.
-- When agreement holds above the policy threshold for enough samples, the engine
-  **delegates the human tier away** — except for a small rate of calibration **samples**,
-  which keep the anchor's verdict arriving so the measurement never drifts.
-- A sampled human tier that disagrees with a delegated verdict **overrides** it.
+- Every executor run records its outcome, label, confidence, coverage, and escalation in the
+  node's **run trace**.
+- Traces aggregate into statistics: agreement between a delegated verdict and the human
+  check that samples it, escalation rates, and coverage.
+- Measurement does **not** pick the executor for a run. It serves two purposes: it keeps
+  every executor calibrated, and it is the signal that a task's character may have changed —
+  for example, a recurring agent judgment that has become formal enough to re-author as a
+  script. Moving work to a different executor is a deliberate re-authoring, reviewed like any
+  other definition change, not an automatic per-run substitution.
+- Calibration samples keep a human check arriving at a low rate, so trust in a delegated
+  verdict never silently drifts; a sampled human that disagrees **overrides** the delegated
+  verdict.
 
-The quality bar is the constraint; cost and time are the objective. The engine optimizes
-the latter subject to the former, and never the other way around.
+The quality bar is the constraint; cost and time are the objective. The engine optimizes the
+latter subject to the former, and never the other way around.
 
 ---
 
@@ -178,15 +202,16 @@ the latter subject to the former, and never the other way around.
 
 The structured **step history** is not a side output — it is **part of the execution
 instance itself**. Each run carries its own step history, which records what happened as it
-happens, tier by tier.
+happens, executor by executor.
 
-The key metrics of each unit — when it ran, which tier carried it, how confident it was, and
-how it turned out — are gathered inside those records, not measured separately afterward.
+The key metrics of each unit — when it ran, which executor carried it, how confident it was,
+and how it turned out — are gathered inside those records, not measured separately afterward.
 
 Because the steps belong to the run and are structured, the presentation can show exactly
-what happened: progress, history, and health, at either level — the tiers inside a node, the
-nodes inside a flow, and the flows inside a plan. The statistics store turns the same
-records into the evidence that drives delegation.
+what happened: progress, history, and health, at either level — the executors inside a node,
+the nodes inside a flow, and the flows inside a plan. The statistics store turns the same
+records into evidence for calibration and for deciding when a task has become formal enough
+to re-author onto a cheaper executor.
 
 ---
 
@@ -195,16 +220,17 @@ records into the evidence that drives delegation.
 The web application is the human window into both levels. It presents:
 
 - **Definitions** — plans and flows, viewable, editable, and validated.
-- **Policies** — the per-flow rules that steer tier cooperation.
-- **Execution status** — each plan and each flow run, its units, current state, and tier
+- **Policies** — the per-flow rules that judge an executor's output and gate escalation.
+- **Execution status** — each plan and each flow run, its units, current state, and run
   traces.
-- **Statistics** — agreement, escalation, and coverage, as the evidence for evolution.
-- **Operator actions** — resolve human tiers, step in where a flow needs attention, and
-  follow or intervene in a plan.
+- **Statistics** — agreement, escalation, and coverage, as evidence for calibration and
+  re-authoring.
+- **Operator actions** — resolve human-executed nodes, step in where a flow needs attention,
+  and follow or intervene in a plan.
 
-For a flow, a **kanban board** shows runs by their **active tier** and state, with columns
-for **Human**, **Agent**, **Script**, **Paused / Blocked**, and **Ended**. The column is
-derived runtime state — where the run currently is — not a property anyone authored.
+For a flow, a **kanban board** shows runs by their **active executor** and state, with
+columns for **Human**, **Agent**, **Script**, **Paused / Blocked**, and **Ended**. The column
+is derived runtime state — where the run currently is — not a property anyone authored.
 
 For a plan, the presentation shows its sub-tasks — the flows that handle them — their order
 and parallelism, and what is running, paused, or finished. A user can follow the initiative
@@ -220,9 +246,11 @@ made visible to the people who need to act on them.
 The platform is one idea applied twice: a definition of ordered units, an executor that
 runs them, a reliable contract per unit, a structured record of what happened, and a
 presentation that lets people see and act. Flows orchestrate nodes; plans orchestrate
-flows. And within a node, script, agent, and human are not three kinds of work — they are
-three tiers of one joint effort, with the engine measuring every step so the work can keep
-moving down the ladder, as fast as the evidence allows.
+flows. And within a node, script, agent, and human are not competing fallbacks — each is the
+right executor for a different character of work: code for rules, agents for tooled
+judgment, people for context, taste, and accountability. Measurement keeps each executor
+honest and tells us when a task's character has changed enough to re-author it, but the task
+— not the statistics — chooses its executor.
 
 See `architecture.md` for the components that realize this vision and `data-model.md` for
-the concrete definitions, tier traces, policies, and statistics.
+the concrete definitions, run traces, policies, and statistics.

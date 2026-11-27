@@ -3,9 +3,11 @@
 This document describes the key components of the platform and how they fit together. It
 builds on `vision.md`: the platform applies one idea — a definition of ordered units, an
 executor that runs them, a step history that lives with the instance — at two levels, **Plan** and
-**Flow**. Within a flow, one further idea applies to every node: **every step is the joint
-effort of script, agent, and human**, executed as a cascade that escalates on confidence and
-continuously optimizes cost and time against runtime statistics.
+**Flow**. Within a flow, one further idea applies to every node: **each node is executed by the
+executor that fits its task — script, agent, or human — chosen for the character of the work,
+not for its historical score.** A node may declare a fallback for when its chosen executor
+cannot complete; measurement is used for calibration and for deciding when a task should be
+re-authored, not to pick the executor per run.
 
 The architecture is deliberately split into a **control plane** (definitions, policies,
 executors, state) and **runners** that may execute on other machines, connected by a
@@ -30,7 +32,7 @@ flowchart TB
     StatsStore[(Stats Store)]
     PlanExec[Plan Executor]
     FlowExec[Flow Executor]
-    Cascade[Cascade Executor<br/>script → agent → human]
+    ExecSelector[Executor Selection<br/>script · agent · human]
     ExecStore[(Execution Store<br/>instances + tier traces)]
     Gateway[Dispatch / Callback Gateway]
   end
@@ -49,20 +51,20 @@ flowchart TB
   DefStore --> PlanExec
   DefStore --> FlowExec
   PlanExec --> FlowExec
-  FlowExec --> Cascade
-  Cascade --> PolicyStore
-  Cascade --> StatsStore
-  StatsStore --> Cascade
+  FlowExec --> ExecSelector
+  ExecSelector --> PolicyStore
+  ExecSelector --> StatsStore
+  StatsStore --> ExecSelector
   FlowExec --> ExecStore
   PlanExec --> ExecStore
-  Cascade --> Gateway
+  ExecSelector --> Gateway
   Gateway --> Bus
   Bus --> ScriptRunner
   Bus --> AgentRunner
   ScriptRunner --> Bus
   AgentRunner --> Bus
   Bus --> Gateway
-  Gateway --> Cascade
+  Gateway --> ExecSelector
   People --> Web
   Web --> ExecStore
   Web --> FlowExec
@@ -78,8 +80,9 @@ flowchart TB
 Holds **plan definitions** and **flow definitions** as JSON, together with their versions.
 
 - A flow definition groups **nodes** into stages and substages; each node declares its
-  **tier stack** — the script, agent, and human tiers that jointly carry out its goal — and
-  names its successor(s) via `next`, so order, parallelism, and error routing are explicit.
+  **executor** — script, agent, or human — plus any fallback, and names its successor(s) via
+  `next`, so order, parallelism, and error routing are explicit. The executor is chosen for
+  the character of the task, not from runtime statistics.
 - A plan definition is a set of nodes, each pairing a material goal with the flow that
   should achieve it; each node names its successor(s) the same way.
 - Definitions are immutable-by-version: a run always refers to the exact version it started
@@ -91,32 +94,33 @@ Holds **plan definitions** and **flow definitions** as JSON, together with their
 Checks every definition against its schema before it is stored or used.
 
 - Rejects invalid definitions early; nothing runs against them.
-- Validates tier stacks: every node has at least one tier, and tier kinds are unique per
-  node.
+- Validates executor declarations: every node has at least one executor, and its fallback, if
+  any, is well formed.
 - Guarantees the executor can rely on the shape of what it loads.
 - Can be used by the web application for live validation while authoring.
 
 ### 3. Policy Store
 
-Holds **flow policies** — the dynamic half of execution. The definition declares the tier
-stack; the policy decides how the tiers cooperate *today*.
+Holds **flow policies** — the dynamic half of execution. The definition declares the node's
+executor; the policy decides how that executor's output is judged *today*.
 
-- Per tier kind: an acceptance **bar** (minimum confidence) and whether the tier's verdict
-  is **binding** or advisory.
-- **Delegation** settings: the agreement threshold and minimum samples required before the
-  human tier may be dropped, and the sampling rate that keeps calibration data flowing.
+- Per executor kind: an acceptance **bar** (minimum confidence) and whether its verdict is
+  **binding** or advisory.
+- **Escalation** settings: when the chosen executor's output may fall back to the node's
+  declared fallback, and the sampling rate that keeps calibration data flowing.
 - **Rules** match node annotations (`when: { risk: 'structural' }`) and override the
   defaults — first match wins.
-- Policies change far more often than definitions: raising a confidence bar never requires
-  a new definition version.
+- Policy tunes quality and escalation behavior; it never swaps the executor the task calls
+  for. Raising a confidence bar never requires a new definition version.
 
 ### 4. Stats Store
 
-Collects the runtime statistics that evolution is measured against. Every completed node
-run feeds its tier trace in; the store aggregates per node and per annotation class.
+Collects the runtime statistics used for calibration and re-authoring. Every completed node
+run feeds its run trace in; the store aggregates per node and per annotation class.
 
-- **Agreement** between the tier below human and the human anchor (outcome + label).
-- **Escalations** — tier runs that fell below their bar.
+- **Agreement** between a delegated verdict and the human check that samples it (outcome +
+  label).
+- **Escalations** — executor runs that fell below their bar.
 - **Coverage** — the share of acceptance criteria formalized into deterministic checks.
 - Persists alongside the execution store and is exposed at `GET /api/stats`.
 

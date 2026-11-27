@@ -934,6 +934,51 @@ textarea {
   padding: 1rem 1.2rem 1.3rem;
 }
 
+.modal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: none;
+}
+
+.modal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fbfcfe;
+  color: var(--text);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.modal-link:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.modal-link-label {
+  font-weight: 700;
+}
+
+.modal-link-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+}
+
+.modal-link:hover .modal-link-detail {
+  color: inherit;
+}
+
 .modal-grid {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
@@ -1007,8 +1052,36 @@ textarea {
   max-height: 210px;
 }
 
+.modal-diagram-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-diagram-section[hidden] {
+  display: none;
+}
+
+.modal-large .modal-diagram-section {
+  overflow: hidden;
+}
+
+.modal-diagram {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
 .modal-diagram .diagram-scroll {
-  max-height: 360px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.modal-diagram .definition-diagram {
+  width: 100%;
+  height: 100%;
 }
 
 .modal-table-wrap {
@@ -1239,7 +1312,9 @@ textarea {
 .modal-large {
   display: flex;
   flex-direction: column;
-  height: min(92vh, 860px);
+  width: 96vw;
+  height: 94vh;
+  max-height: 94vh;
   overflow: hidden;
 }
 
