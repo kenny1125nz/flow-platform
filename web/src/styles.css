@@ -894,6 +894,18 @@ textarea {
   font-size: 1.15rem;
 }
 
+.modal-header .card-top {
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-header .card-stage {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
 .modal-header-actions {
   display: flex;
   align-items: center;
@@ -1117,6 +1129,27 @@ textarea {
   background: var(--accent-soft);
 }
 
+.operator-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.operator-jump {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.operator-jump select {
+  flex: 1;
+  min-width: 0;
+}
+
+.operator-jump .run-control {
+  flex: none;
+}
+
 .modal-submit {
   width: 100%;
   padding: 0.55rem;
@@ -1201,6 +1234,36 @@ textarea {
 
 .reported-dot.ok {
   background: #34b489;
+}
+
+.modal-large {
+  display: flex;
+  flex-direction: column;
+  height: min(92vh, 860px);
+  overflow: hidden;
+}
+
+.modal-large .modal-header {
+  flex: none;
+}
+
+.modal-large .modal-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal-large .modal-tabs {
+  flex: none;
+}
+
+.modal-large .modal-section {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .modal-wide {
@@ -1313,6 +1376,37 @@ textarea {
 .routing-chip:hover {
   border-color: #bcd0ff;
   background: var(--accent-soft);
+}
+
+.run-controls {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.run-control {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.run-control:hover {
+  border-color: #bcd0ff;
+  background: var(--accent-soft);
+}
+
+.run-control.danger {
+  color: #b3402f;
+}
+
+.run-control.danger:hover {
+  border-color: #e0a0a0;
+  background: #fde8e8;
 }
 
 @media (max-width: 900px) {

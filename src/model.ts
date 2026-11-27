@@ -1,5 +1,9 @@
-export type StepType = 'human' | 'agent' | 'script';
+export type TierKind = 'script' | 'agent' | 'human';
 export type OutcomeStatus = 'succeeded' | 'failed' | 'cancelled';
+
+// The canonical execution order: the cheapest, most deterministic tier runs first and
+// the cascade escalates upwards when a tier cannot meet the acceptance bar.
+export const TIER_ORDER: readonly TierKind[] = ['script', 'agent', 'human'];
 
 export type Goal = {
   id: string;
@@ -7,7 +11,7 @@ export type Goal = {
 };
 
 // The environment a run executes in — where the work happens. Set at run start and
-// carried to every step (agent/script/human) so steps know the target repo, branch,
+// carried to every tier (agent/script/human) so tiers know the target repo, branch,
 // and workspace without re-deriving them.
 export type WorkContext = {
   repo?: string;      // owner/repo or remote url
@@ -21,7 +25,7 @@ export type Outcome = {
   metrics?: Record<string, unknown>;
 };
 
-// Token/cost usage reported by an agent step.
+// Token/cost usage reported by an agent tier.
 export type TokenUsage = {
   input: number;
   output: number;
@@ -39,31 +43,51 @@ export type FlowError = {
 
 export type Next = string | string[] | Record<string, string | string[]>;
 
-export type BaseNode = {
+// A criterion a verification node checks against. Each criterion can be formalized into
+// a deterministic check; the share of criteria covered by the script tier is the node's
+// coverage.
+export type Criterion = {
   id: string;
-  type: StepType;
-  errors?: FlowError[];
-  next?: Next;
+  statement: string;   // the verifiable condition
+  verifyWith: string;  // how to produce the evidence: a command, a file, an observation
 };
 
-export type HumanNode = BaseNode & {
-  type: 'human';
-  assignee?: string;
-  prompt?: string;
-};
-
-export type AgentNode = BaseNode & {
-  type: 'agent';
-  instruction: string;
-};
-
-export type ScriptNode = BaseNode & {
-  type: 'script';
+// One executor tier of a node. A node's tiers form its joint-effort stack, executed in
+// canonical order (script → agent → human) with escalation on insufficient confidence.
+export type ScriptTier = {
+  kind: 'script';
   run: string;
   args?: Record<string, unknown>;
 };
 
-export type FlowNode = HumanNode | AgentNode | ScriptNode;
+export type AgentTier = {
+  kind: 'agent';
+  instruction: string;
+};
+
+export type HumanTier = {
+  kind: 'human';
+  prompt?: string;
+  assignee?: string;
+};
+
+export type Tier = ScriptTier | AgentTier | HumanTier;
+
+// Every node is the same shape: a goal carried out by the joint effort of script, agent,
+// and human tiers. The old step "types" are just degenerate tier stacks:
+//   script node = [script], agent node = [agent, human], human node = [script, agent, human].
+export type FlowNode = {
+  id: string;
+  tiers: Tier[];
+  // Acceptance criteria for verification-flavored nodes; drives the coverage metric.
+  criteria?: Criterion[];
+  // Tags the flow-level policy matches on to decide how the tiers cooperate.
+  annotations?: Record<string, string>;
+  // Errors this node may report. Each error code should be a label in `next`.
+  errors?: FlowError[];
+  // Labels are the node's possible positive outcomes, plus its error codes.
+  next?: Next;
+};
 
 export type Stage = {
   id: string;
@@ -94,15 +118,33 @@ export type PlanDefinition = {
 
 export type UnitStatus = 'running' | 'paused' | 'ended';
 
+// One tier's contribution within a node run. The trace of tiers is what makes evolution
+// measurable: calibration, agreement, coverage, and cost are all computed from it.
+export type TierRun = {
+  kind: TierKind;
+  status: UnitStatus;
+  outcome?: OutcomeStatus;   // the tier's terminal result
+  label?: string;            // the tier's verdict label, when it picks one
+  output?: unknown;          // what the tier produced
+  confidence?: number;       // self-reported confidence in the output (0..1)
+  coverage?: number;         // verification tiers: fraction of criteria covered
+  error?: FlowError;
+  escalated?: boolean;       // true when the tier's output fell below its bar
+  advisory?: boolean;        // true when the tier ran but its verdict was not authoritative
+  sampled?: boolean;         // true when the tier ran only to gather calibration data
+  startedAt?: string;
+  finishedAt?: string;
+};
+
 export type NodeRun = {
   nodeId: string;
-  type: StepType;
   status: UnitStatus;
   outcome?: Outcome;
   label?: string;
   error?: FlowError;
-  output?: unknown;
+  output?: unknown;      // the accepted output of the node (from the tier that met the bar)
   usage?: TokenUsage;
+  tiers: TierRun[];      // the joint-effort trace, in execution order
   startedAt?: string;
   finishedAt?: string;
 };
@@ -113,6 +155,11 @@ export type RunResult = {
   error?: FlowError;
   output?: unknown;
   usage?: TokenUsage;
+  // A tier may report how confident it is in its output; the cascade compares it against
+  // the tier's acceptance bar.
+  confidence?: number;
+  // A verification tier may report how much of the criteria its checks cover.
+  coverage?: number;
 };
 
 export interface FlowInstance {
@@ -121,11 +168,20 @@ export interface FlowInstance {
   goal: Goal;
   context: WorkContext;
   status: UnitStatus;
+  suspended: boolean;
   result?: RunResult;
   steps: NodeRun[];
   createdAt: string;
   updatedAt: string;
   execute(): Promise<RunResult>;
+  cancel(): void;
+  pause(): void;
+  resume(): void;
+  // Operator recovery actions for a paused/blocked run. Optional because reloaded runs
+  // are read-only and cannot be operated on.
+  retryStep?(nodeId: string): void;
+  skipStep?(nodeId: string): void;
+  jumpToStep?(nodeId: string): void;
 }
 
 export type FlowRun = {
@@ -138,11 +194,15 @@ export interface PlanInstance {
   plan: { id: string; version: string };
   context: WorkContext;
   status: UnitStatus;
+  suspended: boolean;
   result?: RunResult;
   steps: FlowRun[];
   createdAt: string;
   updatedAt: string;
   execute(): Promise<RunResult>;
+  cancel(): void;
+  pause(): void;
+  resume(): void;
 }
 
 // --- Task spec (Frame stage artifact) ---
@@ -184,4 +244,5 @@ export type CriterionVerdict = {
 
 export type ConfirmVerdict = {
   criteria: CriterionVerdict[]; // one entry per acceptance criterion
+  feedback?: string; // free-form guidance when the verdict is a rejection/rework
 };

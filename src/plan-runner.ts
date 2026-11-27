@@ -52,6 +52,7 @@ export class PlanRunner implements PlanInstance {
   readonly createdAt: string;
 
   status: UnitStatus = 'running';
+  suspended = false;
   result?: RunResult;
   updatedAt: string;
 
@@ -70,6 +71,7 @@ export class PlanRunner implements PlanInstance {
   private active = 0;
   private pumping = false;
   private completed = false;
+  private cancelled = false;
   private onComplete?: () => void;
   private execution?: Promise<RunResult>;
 
@@ -120,7 +122,7 @@ export class PlanRunner implements PlanInstance {
   }
 
   private enqueue(nodeId: string): void {
-    if (this.status !== 'running' || this.inFlight.has(nodeId) || this.queued.has(nodeId)) {
+    if (this.cancelled || this.status !== 'running' || this.inFlight.has(nodeId) || this.queued.has(nodeId)) {
       return;
     }
     this.queued.add(nodeId);
@@ -129,12 +131,12 @@ export class PlanRunner implements PlanInstance {
   }
 
   private pump(): void {
-    if (this.pumping) {
+    if (this.pumping || this.suspended || this.cancelled) {
       return;
     }
     this.pumping = true;
     try {
-      while (this.queue.length > 0 && this.status === 'running') {
+      while (this.queue.length > 0 && this.status === 'running' && !this.suspended && !this.cancelled) {
         const nodeId = this.queue.shift()!;
         this.queued.delete(nodeId);
         if (this.inFlight.has(nodeId)) {
@@ -151,7 +153,7 @@ export class PlanRunner implements PlanInstance {
   }
 
   private checkDone(): void {
-    if (this.completed) {
+    if (this.completed || this.suspended || this.cancelled) {
       return;
     }
     if (this.status === 'running' && this.active === 0 && this.queue.length === 0) {
@@ -178,7 +180,7 @@ export class PlanRunner implements PlanInstance {
   private async executeNodeInner(nodeId: string): Promise<void> {
     const node = this.nodes.get(nodeId);
     if (!node) {
-      this.pause({ code: 'plan.node.missing', message: `plan node "${nodeId}" does not exist` });
+      this.pauseError({ code: 'plan.node.missing', message: `plan node "${nodeId}" does not exist` });
       return;
     }
 
@@ -205,7 +207,7 @@ export class PlanRunner implements PlanInstance {
         code: 'flow.instance.error',
         message: error instanceof Error ? error.message : String(error),
       };
-      this.pause(flowError);
+      this.pauseError(flowError);
       return;
     }
 
@@ -225,7 +227,7 @@ export class PlanRunner implements PlanInstance {
       const routed = resolveNextTargets(node.next, error.code, 'failure');
 
       if (!routed.ok || routed.targets.length === 0) {
-        this.pause(error);
+        this.pauseError(error);
         return;
       }
 
@@ -237,7 +239,7 @@ export class PlanRunner implements PlanInstance {
 
     const routed = resolveNextTargets(node.next, outcome.label, 'positive');
     if (!routed.ok) {
-      this.pause({
+      this.pauseError({
         code: 'plan.route.missing',
         message: `no next entry for label "${outcome.label ?? ''}" on plan node "${nodeId}"`,
       });
@@ -254,13 +256,48 @@ export class PlanRunner implements PlanInstance {
     }
   }
 
-  private pause(error: FlowError): void {
+  private pauseError(error: FlowError): void {
     if (this.status !== 'running') {
       return;
     }
     this.status = 'paused';
     this.result = { outcome: { status: 'failed' }, error };
     this.touch();
+    this.checkDone();
+  }
+
+  cancel(): void {
+    if (this.completed || this.cancelled) {
+      return;
+    }
+    this.cancelled = true;
+    this.suspended = false;
+    this.queue.length = 0;
+    this.queued.clear();
+    for (const flow of this.flowInstances.values()) {
+      flow.cancel();
+    }
+    this.status = 'ended';
+    this.result = { outcome: { status: 'cancelled' } };
+    this.touch();
+    this.completed = true;
+    this.onComplete?.();
+  }
+
+  pause(): void {
+    if (this.status !== 'running' || this.suspended || this.cancelled) {
+      return;
+    }
+    this.suspended = true;
+    this.touch();
+  }
+
+  resume(): void {
+    if (!this.suspended || this.cancelled) {
+      return;
+    }
+    this.suspended = false;
+    this.pump();
     this.checkDone();
   }
 

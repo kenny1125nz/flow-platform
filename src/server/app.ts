@@ -1,23 +1,27 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import type { FlowDefinition, PlanDefinition, RunResult } from '../model.js';
+import type { FlowDefinition, FlowInstance, PlanDefinition, RunResult } from '../model.js';
 import type {
   CreateFlowRunBody,
   CreatePlanRunBody,
   DefinitionSummary,
   ErrorBody,
+  FlowOperatorBody,
   HumanRespondBody,
+  PolicySummary,
   RunDetail,
   RunSummary,
 } from '../api-types.js';
-import { GraphValidationError } from '../errors.js';
+import { GraphValidationError, OperatorActionError } from '../errors.js';
 import { validateFlowDefinition, validatePlanDefinition } from '../graph.js';
 import { FlowRunner } from '../flow-runner.js';
 import { PlanRunner } from '../plan-runner.js';
+import { PolicyStore, makePolicy, type FlowPolicy } from '../policy.js';
+import { StatsStore } from '../stats.js';
 import { createNodeExecutor, HumanTaskBroker, localScriptHandler, type NodeExecutor } from '../runtime.js';
 import { createOpencodeAgentHandler } from './agent.js';
 import { EventHub } from './events.js';
 import { readNodeSource } from './flows-source.js';
-import { seedDefinitions } from './seed.js';
+import { seedDefinitions, seedPolicies } from './seed.js';
 import { flowRunDetail, flowRunSummary, planRunDetail, planRunSummary } from './serialize.js';
 import {
   DefinitionStore,
@@ -33,6 +37,8 @@ export type AppOptions = {
   seed?: boolean;
   now?: () => Date;
   runStore?: RunStore;
+  stats?: StatsStore;
+  policies?: PolicyStore;
 };
 
 type RefParams = { id: string; version: string };
@@ -48,19 +54,27 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
   const now = options.now ?? (() => new Date());
 
   const broker = options.broker ?? new HumanTaskBroker();
+  const policies = options.policies ?? new PolicyStore();
+  const stats = options.stats ?? new StatsStore();
 
   const executor =
     options.executor ??
-    createNodeExecutor({
-      script: localScriptHandler,
-      human: broker.handler,
-      agent: createOpencodeAgentHandler({
-        bin: process.env.OPENCODE_BIN,
-        model: process.env.OPENCODE_MODEL,
-        agent: process.env.OPENCODE_AGENT,
-        autoApprove: process.env.OPENCODE_FLOW_AUTO_APPROVE === '1',
-      }),
-    });
+    createNodeExecutor(
+      {
+        script: localScriptHandler,
+        human: broker.handler,
+        agent: createOpencodeAgentHandler({
+          bin: process.env.OPENCODE_BIN,
+          model: process.env.OPENCODE_MODEL,
+          agent: process.env.OPENCODE_AGENT,
+          autoApprove: process.env.OPENCODE_FLOW_AUTO_APPROVE === '1',
+        }),
+      },
+      {
+        stats,
+        resolvePolicy: (flow) => policies.get(flow.id, flow.version),
+      },
+    );
 
   const resolveFlow = (ref: { id: string; version: string }): FlowDefinition => {
     const definition = store.getFlow(ref.id, ref.version);
@@ -77,8 +91,38 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     });
   };
 
+  // Reloaded runs are frozen (they cannot execute). To let an operator recover a paused
+  // run after a restart, rebuild a live runner from the persisted history.
+  const reviveFlowRun = (frozen: FlowInstance): FlowInstance | undefined => {
+    const definition = store.getFlow(frozen.flow.id, frozen.flow.version);
+    if (!definition) {
+      return undefined;
+    }
+    return new FlowRunner({
+      id: frozen.id,
+      definition,
+      goal: frozen.goal,
+      context: frozen.context,
+      executor,
+      now,
+      restore: {
+        steps: frozen.steps,
+        status: frozen.status,
+        suspended: frozen.suspended,
+        ...(frozen.result === undefined ? {} : { result: frozen.result }),
+        createdAt: frozen.createdAt,
+        updatedAt: frozen.updatedAt,
+      },
+      onChange: (instance) => {
+        publishRun('flow', instance);
+        runStore?.save({ kind: 'flow', instance });
+      },
+    });
+  };
+
   if (options.seed !== false) {
     seedDefinitions(store);
+    seedPolicies(policies);
   }
 
   if (runStore) {
@@ -108,6 +152,36 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       nodeCount: definition.nodes.length,
     }));
     return [...flows, ...plans];
+  });
+
+  app.get('/api/policies', async () => {
+    const list: PolicySummary[] = policies.list().map((policy) => ({
+      id: policy.id,
+      version: policy.version,
+    }));
+    return list;
+  });
+
+  app.get<{ Params: RefParams }>('/api/policies/:id/:version', async (request, reply) => {
+    const policy = policies.get(request.params.id, request.params.version);
+    if (!policy) {
+      return reply.code(404).send({ error: 'policy not found' } satisfies ErrorBody);
+    }
+    return policy;
+  });
+
+  app.put<{ Params: RefParams }>('/api/policies/:id/:version', async (request, reply) => {
+    const body = request.body as Partial<FlowPolicy> | undefined;
+    if (!body || typeof body !== 'object') {
+      return reply.code(400).send({ error: 'policy body is required' } satisfies ErrorBody);
+    }
+    const policy = makePolicy(request.params.id, request.params.version, body);
+    policies.put(policy);
+    return reply.code(201).send(policy);
+  });
+
+  app.get('/api/stats', async () => {
+    return stats.snapshot();
   });
 
   app.get<{ Params: RefParams }>('/api/flows/:id/:version', async (request, reply) => {
@@ -245,6 +319,33 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     return sendRunDetail(entry);
   });
 
+  app.post<{ Params: IdParams }>('/api/runs/:id/cancel', async (request, reply) => {
+    const entry = registry.get(request.params.id);
+    if (!entry) {
+      return reply.code(404).send({ error: 'run not found' } satisfies ErrorBody);
+    }
+    entry.instance.cancel();
+    return { ok: true };
+  });
+
+  app.post<{ Params: IdParams }>('/api/runs/:id/pause', async (request, reply) => {
+    const entry = registry.get(request.params.id);
+    if (!entry) {
+      return reply.code(404).send({ error: 'run not found' } satisfies ErrorBody);
+    }
+    entry.instance.pause();
+    return { ok: true };
+  });
+
+  app.post<{ Params: IdParams }>('/api/runs/:id/resume', async (request, reply) => {
+    const entry = registry.get(request.params.id);
+    if (!entry) {
+      return reply.code(404).send({ error: 'run not found' } satisfies ErrorBody);
+    }
+    entry.instance.resume();
+    return { ok: true };
+  });
+
   app.get('/api/flow-runs', async () => {
     return registry
       .list()
@@ -283,6 +384,62 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
     return planRunDetail(entry.instance);
   });
 
+  app.post<{ Params: IdParams }>('/api/flow-runs/:id/operator', async (request, reply) => {
+    const entry = registry.get(request.params.id);
+    if (!entry || entry.kind !== 'flow') {
+      return reply.code(404).send({ error: 'flow run not found' } satisfies ErrorBody);
+    }
+
+    const body = request.body as Partial<FlowOperatorBody> | undefined;
+    if (
+      !body ||
+      !['retry', 'skip', 'jump'].includes(body.action ?? '') ||
+      typeof body.nodeId !== 'string' ||
+      body.nodeId === ''
+    ) {
+      return reply
+        .code(400)
+        .send({ error: 'action (retry|skip|jump) and nodeId are required' } satisfies ErrorBody);
+    }
+
+    let instance = entry.instance;
+    if (!isOperable(instance)) {
+      if (instance.status !== 'paused') {
+        return reply.code(409).send({ error: 'run is not paused' } satisfies ErrorBody);
+      }
+      const revived = reviveFlowRun(instance);
+      if (!revived) {
+        return reply
+          .code(409)
+          .send({
+            error: `flow definition "${instance.flow.id}@${instance.flow.version}" is no longer available`,
+          } satisfies ErrorBody);
+      }
+      registry.addFlow(revived);
+      instance = revived;
+    }
+    if (!isOperable(instance)) {
+      return reply.code(409).send({ error: 'this run is read-only' } satisfies ErrorBody);
+    }
+
+    try {
+      if (body.action === 'retry') {
+        instance.retryStep(body.nodeId);
+      } else if (body.action === 'skip') {
+        instance.skipStep(body.nodeId);
+      } else {
+        instance.jumpToStep(body.nodeId);
+      }
+    } catch (error) {
+      if (error instanceof OperatorActionError) {
+        return reply.code(409).send({ error: error.message } satisfies ErrorBody);
+      }
+      throw error;
+    }
+
+    return { ok: true };
+  });
+
   app.post<{ Params: HumanParams }>('/api/flow-runs/:flowInstanceId/human/:nodeId/respond', async (request, reply) => {
     const body = request.body as HumanRespondBody;
     if (!body || !['succeeded', 'failed', 'cancelled'].includes(body.outcome)) {
@@ -293,6 +450,7 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
       outcome: body.metrics ? { status: body.outcome, metrics: body.metrics } : { status: body.outcome },
       ...(body.label === undefined ? {} : { label: body.label }),
       ...(body.error === undefined ? {} : { error: body.error }),
+      ...(body.confidence === undefined ? {} : { confidence: body.confidence }),
       ...(body.data === undefined ? {} : { output: body.data }),
     };
 
@@ -325,6 +483,16 @@ export function createApp(options: AppOptions = {}): FastifyInstance {
   });
 
   return app;
+}
+
+type OperableFlow = FlowInstance & Required<Pick<FlowInstance, 'retryStep' | 'skipStep' | 'jumpToStep'>>;
+
+function isOperable(run: FlowInstance): run is OperableFlow {
+  return (
+    typeof run.retryStep === 'function' &&
+    typeof run.skipStep === 'function' &&
+    typeof run.jumpToStep === 'function'
+  );
 }
 
 function sendRunDetail(entry: RegisteredRun): RunDetail {

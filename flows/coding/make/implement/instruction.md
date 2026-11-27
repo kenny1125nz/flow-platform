@@ -7,6 +7,11 @@ This prints the task spec (goal, constraints, scope, acceptance criteria, evalua
 Implement within the scope, satisfying every acceptance criterion, and run the
 evaluation commands to verify your work. Do not change files outside the scope fence.
 
+If this is a rework — the upstream outputs contain a prior `confirm-verify` or
+`pr-review` output with a `rework` label and `feedback` — read that feedback and address
+it explicitly in addition to the task spec. Prefer fixing the flagged issues over
+starting over.
+
 After implementing, produce an implementation report as structured JSON conforming to
 the schema in `flows/coding/make/implement/implementation-report.schema.ts`:
 

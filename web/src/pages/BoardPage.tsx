@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import type { FlowDefinition } from '@shared/model';
-import type { HumanRespondBody } from '@shared/api-types';
+import type { FlowOperatorBody, HumanRespondBody } from '@shared/api-types';
 import { api } from '../api';
 import { collectFlowCards, focusStep } from '../components/card-utils';
 import { FlowBoard } from '../components/FlowBoard';
@@ -66,6 +66,14 @@ export function BoardPage() {
     },
   });
 
+  const operate = useMutation({
+    mutationFn: (input: { runId: string; body: FlowOperatorBody }) => api.operateFlowRun(input.runId, input.body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['board'] });
+      void queryClient.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+
   if (board.isLoading) {
     return <div className="board-loading muted">Loading board…</div>;
   }
@@ -104,6 +112,9 @@ export function BoardPage() {
             respond
               .mutateAsync({ flowInstanceId: selectedRun.id, nodeId: selectedFocus.nodeId, body })
               .then(() => undefined)
+          }
+          onOperate={(body) =>
+            operate.mutateAsync({ runId: selectedRun.id, body }).then(() => undefined)
           }
         />
       ) : null}

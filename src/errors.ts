@@ -13,3 +13,12 @@ export class GraphValidationError extends Error {
   }
 }
 
+// Raised when an operator action (retry/skip/jump) is not valid for a run's current
+// state — for example when the run is not paused or a step is still in flight.
+export class OperatorActionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OperatorActionError';
+  }
+}
+

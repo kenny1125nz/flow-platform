@@ -4,9 +4,17 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createOpencodeAgentHandler } from '../src/server/agent.js';
-import type { AgentNode } from '../src/model.js';
+import type { AgentTier, NodeContext } from '../src/index.js';
 
-const node: AgentNode = { id: 'agent', type: 'agent', instruction: 'do work' };
+const tier: AgentTier = { kind: 'agent', instruction: 'do work' };
+const context: NodeContext = {
+  flowInstanceId: 'flow-1',
+  nodeId: 'agent',
+  flow: { id: 'f', version: '1' },
+  goal: { id: 'goal-1' },
+  context: {},
+  outputs: {},
+};
 
 test('parses a structured result and token usage from the opencode output', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'flow-agent-'));
@@ -15,7 +23,7 @@ test('parses a structured result and token usage from the opencode output', asyn
     bin,
     [
       '#!/bin/sh',
-      "printf '%s\\n' '{\"type\":\"text\",\"part\":{\"text\":\"{\\\"outcome\\\":\\\"succeeded\\\",\\\"label\\\":\\\"ok\\\"}\"}}'",
+      "printf '%s\\n' '{\"type\":\"text\",\"part\":{\"text\":\"{\\\"outcome\\\":\\\"succeeded\\\",\\\"label\\\":\\\"ok\\\",\\\"confidence\\\":0.9}\"}}'",
       "printf '%s\\n' '{\"type\":\"step_finish\",\"part\":{\"tokens\":{\"input\":10,\"output\":5,\"reasoning\":3,\"cache\":{\"read\":4,\"write\":0}}},\"cost\":0.01}'",
       '',
     ].join('\n'),
@@ -24,10 +32,11 @@ test('parses a structured result and token usage from the opencode output', asyn
 
   try {
     const handler = createOpencodeAgentHandler({ bin });
-    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' }, context: {}, outputs: {} });
+    const result = await handler(tier, context);
 
     assert.equal(result.outcome.status, 'succeeded');
     assert.equal(result.label, 'ok');
+    assert.equal(result.confidence, 0.9);
     assert.deepEqual(result.usage, {
       input: 10,
       output: 5,
@@ -49,7 +58,7 @@ test('reports a failed result when the process exits non-zero without JSON', asy
 
   try {
     const handler = createOpencodeAgentHandler({ bin });
-    const result = await handler(node, { flowInstanceId: 'flow-1', goal: { id: 'goal-1' }, context: {}, outputs: {} });
+    const result = await handler(tier, context);
 
     assert.equal(result.outcome.status, 'failed');
     assert.equal(result.error?.code, 'agent.failed');

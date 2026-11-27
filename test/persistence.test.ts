@@ -16,15 +16,14 @@ const simpleFlow: FlowDefinition = {
     {
       id: 'main',
       nodes: [
-        { id: 'prepare', type: 'script', run: 'echo prepare', next: 'approve' },
+        { id: 'prepare', tiers: [{ kind: 'script', run: 'echo prepare' }], next: 'approve' },
         {
           id: 'approve',
-          type: 'human',
-          prompt: 'Approve?',
+          tiers: [{ kind: 'human', prompt: 'Approve?' }],
           next: { approved: 'deploy', rejected: 'cancel' },
         },
-        { id: 'deploy', type: 'script', run: 'echo deploy' },
-        { id: 'cancel', type: 'script', run: 'echo cancel' },
+        { id: 'deploy', tiers: [{ kind: 'script', run: 'echo deploy' }] },
+        { id: 'cancel', tiers: [{ kind: 'script', run: 'echo cancel' }] },
       ],
     },
   ],
@@ -33,7 +32,7 @@ const simpleFlow: FlowDefinition = {
 const autoFlow: FlowDefinition = {
   id: 'auto',
   version: '1',
-  stages: [{ id: 'main', nodes: [{ id: 'go', type: 'script', run: 'echo go' }] }],
+  stages: [{ id: 'main', nodes: [{ id: 'go', tiers: [{ kind: 'script', run: 'echo go' }] }] }],
 };
 
 const gateFlow: FlowDefinition = {
@@ -42,7 +41,14 @@ const gateFlow: FlowDefinition = {
   stages: [
     {
       id: 'main',
-      nodes: [{ id: 'approve', type: 'human', prompt: 'Approve?', next: { approved: 'deploy' } }, { id: 'deploy', type: 'script', run: 'echo deploy' }],
+      nodes: [
+        {
+          id: 'approve',
+          tiers: [{ kind: 'human', prompt: 'Approve?' }],
+          next: { approved: 'deploy' },
+        },
+        { id: 'deploy', tiers: [{ kind: 'script', run: 'echo deploy' }] },
+      ],
     },
   ],
 };
@@ -63,8 +69,8 @@ function makeStore(): { dir: string } {
 function makeApp(dir: string) {
   const broker = new HumanTaskBroker();
   const executor = createNodeExecutor({
-    script: async (node) => succeeded(node.id),
-    agent: async (node) => succeeded(node.id),
+    script: async (_tier, context) => succeeded(context.nodeId),
+    agent: async (_tier, context) => succeeded(context.nodeId),
     human: broker.handler,
   });
   return { app: createApp({ broker, executor, seed: true, runStore: new RunStore(dir) }), broker };
@@ -201,7 +207,7 @@ test('persists step-level progress incrementally for a paused human step', async
   const detail = after.json() as RunDetail;
   assert.equal(detail.kind, 'flow');
   if (detail.kind === 'flow') {
-    const human = detail.steps.find((step) => step.type === 'human');
+    const human = detail.steps.find((step) => step.tiers.some((tier) => tier.kind === 'human'));
     assert.ok(human);
     assert.equal(human.status, 'running');
     assert.ok(detail.steps.some((step) => step.nodeId === 'prepare' && step.status === 'ended'));
@@ -242,13 +248,17 @@ async function waitForHumanStep(
     const detail = response.json() as RunDetail;
 
     if (detail.kind === 'flow') {
-      const step = detail.steps.find((candidate) => candidate.type === 'human' && candidate.status === 'running');
+      const step = detail.steps.find((candidate) =>
+        candidate.tiers.some((tier) => tier.kind === 'human' && tier.status === 'running'),
+      );
       if (step) {
         return { flowInstanceId: detail.id, nodeId: step.nodeId };
       }
     } else {
       for (const step of detail.steps) {
-        const human = step.steps?.find((candidate) => candidate.type === 'human' && candidate.status === 'running');
+        const human = step.steps?.find((candidate) =>
+          candidate.tiers.some((tier) => tier.kind === 'human' && tier.status === 'running'),
+        );
         if (human && step.flowInstanceId) {
           return { flowInstanceId: step.flowInstanceId, nodeId: human.nodeId };
         }

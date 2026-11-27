@@ -23,3 +23,7 @@ export function flowsRoot(): string {
 export function runStoreRoot(): string {
   return join(repoRoot(), '.runs');
 }
+
+export function statsRoot(): string {
+  return join(repoRoot(), '.runs');
+}

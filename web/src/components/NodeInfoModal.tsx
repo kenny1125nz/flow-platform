@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { FlowNode, Next, PlanNode, TaskSpec } from '@shared/model';
 import { api } from '../api';
 import { rendererRegistry, type HumanStepRenderer } from '../renderers';
+import { humanTierOf } from './card-utils';
 import { JsonBlock } from './JsonBlock';
 
 const previewTaskSpec: TaskSpec = {
@@ -50,7 +51,7 @@ export function NodeInfoModal({
   onOpenNode?: (nodeId: string) => void;
 }) {
   const titleId = useId();
-  const isFlowNode = 'type' in node;
+  const isFlowNode = 'tiers' in node;
   const rendererKey = isFlowNode && flowId ? `${flowId}:${node.id}` : undefined;
   const Renderer = rendererKey ? rendererRegistry[rendererKey] : undefined;
 
@@ -91,7 +92,7 @@ export function NodeInfoModal({
           <div>
             <h2 id={titleId}>{node.id}</h2>
             <div className="card-stage">
-              {isFlowNode ? `${node.type} step` : 'plan node'}
+              {isFlowNode ? `${node.tiers.map((tier) => tier.kind).join(' → ')} step` : 'plan node'}
               {stage ? ` · ${stage}` : ''}
             </div>
           </div>
@@ -106,11 +107,8 @@ export function NodeInfoModal({
           </div>
 
           <div className="node-info-main">
-            {isFlowNode && node.type === 'agent' ? (
-              <TextArtifact title="Instruction" text={node.instruction} />
-            ) : null}
-            {isFlowNode && node.type === 'human' && node.prompt ? (
-              <TextArtifact title="Prompt" text={node.prompt} />
+            {isFlowNode ? (
+              <TierArtifacts node={node} />
             ) : null}
 
             {isFlowNode ? <IntentionSection files={files} /> : null}
@@ -119,7 +117,7 @@ export function NodeInfoModal({
               <RendererPreview
                 Renderer={Renderer}
                 node={node}
-                prompt={node.type === 'human' ? node.prompt ?? '' : ''}
+                prompt={humanTierOf(node)?.prompt ?? ''}
               />
             ) : null}
 
@@ -142,21 +140,38 @@ function FactsSection({
   stage?: string;
   onOpenNode?: (nodeId: string) => void;
 }) {
-  const isFlowNode = 'type' in node;
+  const isFlowNode = 'tiers' in node;
+  const humanTier = isFlowNode ? humanTierOf(node) : undefined;
   return (
     <section className="modal-section">
       <h3>Step</h3>
       <dl className="modal-facts">
         <Fact label="ID" value={node.id} mono />
-        {isFlowNode ? <Fact label="Type" value={node.type} /> : null}
+        {isFlowNode ? <Fact label="Tiers" value={node.tiers.map((tier) => tier.kind).join(' → ')} /> : null}
+        {isFlowNode && node.annotations && Object.keys(node.annotations).length > 0 ? (
+          <Fact
+            label="Annotations"
+            value={Object.entries(node.annotations).map(([key, value]) => `${key}=${value}`).join(', ')}
+          />
+        ) : null}
         {stage ? <Fact label="Stage" value={stage} /> : null}
-        {isFlowNode && node.type === 'human' && node.assignee ? <Fact label="Assignee" value={node.assignee} /> : null}
+        {humanTier?.assignee ? <Fact label="Assignee" value={humanTier.assignee} /> : null}
         {!isFlowNode ? <Fact label="Goal" value={node.goal.id} mono /> : null}
         {!isFlowNode && node.goal.description ? <Fact label="Description" value={node.goal.description} /> : null}
         {!isFlowNode ? <Fact label="Flow" value={`${node.flow.id}@${node.flow.version}`} mono /> : null}
-        {isFlowNode && node.type === 'script' ? <Fact label="Run" value={node.run} mono /> : null}
+        {isFlowNode
+          ? node.tiers.map((tier) =>
+              tier.kind === 'script' ? <Fact key="script" label="Run" value={tier.run} mono /> : null,
+            )
+          : null}
       </dl>
 
+      {isFlowNode && node.criteria && node.criteria.length > 0 ? (
+        <div className="modal-subsection">
+          <div className="modal-field-label">Acceptance criteria</div>
+          <JsonBlock value={node.criteria} />
+        </div>
+      ) : null}
       {node.errors !== undefined && node.errors.length > 0 ? (
         <div className="modal-subsection">
           <div className="modal-field-label">Errors</div>
@@ -170,6 +185,24 @@ function FactsSection({
         </div>
       ) : null}
     </section>
+  );
+}
+
+// One artifact per tier contract: the agent tier's instruction, the human tier's prompt,
+// and the script tier's run command.
+function TierArtifacts({ node }: { node: FlowNode }) {
+  return (
+    <>
+      {node.tiers.map((tier) => {
+        if (tier.kind === 'agent') {
+          return <TextArtifact key="agent" title="Agent instruction" text={tier.instruction} />;
+        }
+        if (tier.kind === 'human' && tier.prompt) {
+          return <TextArtifact key="human" title="Human prompt" text={tier.prompt} />;
+        }
+        return null;
+      })}
+    </>
   );
 }
 

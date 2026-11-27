@@ -88,12 +88,16 @@ export type PlanRunView = {
   plan: { id: string; version: string };
   context: WorkContext;
   status: UnitStatus;
+  suspended: boolean;
   result?: RunResult;
   steps: FlowRun[];
   createdAt: string;
   updatedAt: string;
   definition: PlanDefinition;
   getFlowInstance(nodeId: string): FlowInstance | undefined;
+  cancel(): void;
+  pause(): void;
+  resume(): void;
 };
 
 export type RegisteredRun =
@@ -153,6 +157,10 @@ export class RunStore {
       } catch {
         continue;
       }
+      // Skip files that are not run records (e.g. the stats store's flow-stats.json).
+      if (data.kind !== 'flow' && data.kind !== 'plan') {
+        continue;
+      }
       if (data.kind === 'flow') {
         const flow = freezeFlow(data.instance);
         registry.addFlow(flow);
@@ -210,9 +218,14 @@ function toPlanData(instance: PlanRunView): PlanRunData {
 function freezeFlow(data: FlowRunData): FlowInstance {
   return {
     ...data,
+    steps: data.steps.map((step) => ({ ...step, tiers: step.tiers ?? [] })),
+    suspended: false,
     execute(): Promise<RunResult> {
       throw new Error(`run ${data.id} was reloaded and cannot be executed`);
     },
+    cancel(): void {},
+    pause(): void {},
+    resume(): void {},
   };
 }
 
@@ -225,6 +238,7 @@ function freezePlan(
     plan: data.plan,
     context: data.context,
     status: data.status,
+    suspended: false,
     ...(data.result === undefined ? {} : { result: data.result }),
     steps: data.steps,
     createdAt: data.createdAt,
@@ -234,5 +248,8 @@ function freezePlan(
       const step = data.steps.find((candidate) => candidate.nodeId === nodeId);
       return step ? resolveFlow(step.flowInstanceId) : undefined;
     },
+    cancel(): void {},
+    pause(): void {},
+    resume(): void {},
   };
 }

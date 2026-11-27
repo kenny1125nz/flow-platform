@@ -16,6 +16,7 @@ export default function ConfirmVerifyRenderer({ inputs, submit }: HumanStepRende
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState('');
 
   if (!spec || !report) {
     return <div className="modal-empty">No task spec or implementation report available.</div>;
@@ -31,7 +32,10 @@ export default function ConfirmVerifyRenderer({ inputs, submit }: HumanStepRende
   const doSubmit = async (label: 'ready' | 'rework') => {
     setPending(true);
     setError(null);
-    const data: ConfirmVerdict = { criteria: criteria.map((criterion) => verdicts[criterion.id]) };
+    const data: ConfirmVerdict = {
+      criteria: criteria.map((criterion) => verdicts[criterion.id]),
+      ...(feedback.trim() ? { feedback: feedback.trim() } : {}),
+    };
     try {
       await submit({ outcome: 'succeeded', label, data });
     } catch (caught) {
@@ -81,6 +85,15 @@ export default function ConfirmVerifyRenderer({ inputs, submit }: HumanStepRende
           />
         );
       })}
+
+      <div className="modal-field-label">Rework feedback (optional)</div>
+      <textarea
+        className="spec-evidence"
+        rows={2}
+        value={feedback}
+        onChange={(event) => setFeedback(event.target.value)}
+        placeholder="If sending back for rework, explain what needs to change…"
+      />
 
       <div className="decision-options">
         <button

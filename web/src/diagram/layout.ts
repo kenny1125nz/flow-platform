@@ -1,5 +1,5 @@
 import { Graph, layout } from '@dagrejs/dagre';
-import type { FlowDefinition, FlowNode, Next, PlanDefinition, Stage } from '@shared/model';
+import { TIER_ORDER, type FlowDefinition, type FlowNode, type Next, type PlanDefinition, type Stage, type TierKind } from '@shared/model';
 
 export type DiagramNodeKind = 'human' | 'agent' | 'script' | 'flow';
 
@@ -203,8 +203,8 @@ export function layoutFlowDefinition(
     return {
       id: node.id,
       label: truncate(node.id, 18),
-      sublabel: node.type,
-      kind: node.type,
+      sublabel: nodeTierLabel(node),
+      kind: nodeKindOf(node),
       x: (laidOut.x ?? 0) - FLOW_NODE.width / 2,
       y: (laidOut.y ?? 0) - FLOW_NODE.height / 2,
       ...FLOW_NODE,
@@ -361,6 +361,19 @@ function collectSubtreeNodeIds(stage: StageTree): string[] {
 
 function groupIdOf(key: string): string {
   return `${STAGE_PREFIX}${key}`;
+}
+
+// The diagram's visual kind is the first (cheapest) tier of the node's stack; the
+// sublabel shows the whole stack so joint-effort nodes are explicit.
+function nodeKindOf(node: FlowNode): DiagramNodeKind {
+  return node.tiers[0]?.kind ?? 'flow';
+}
+
+function nodeTierLabel(node: FlowNode): string {
+  const kinds = node.tiers
+    .map((tier) => tier.kind)
+    .sort((a, b) => TIER_ORDER.indexOf(a as TierKind) - TIER_ORDER.indexOf(b as TierKind));
+  return kinds.join('→');
 }
 
 function truncate(value: string, maxLength: number): string {

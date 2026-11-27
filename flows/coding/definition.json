@@ -8,15 +8,31 @@
       "nodes": [
         {
           "id": "define-spec",
-          "type": "agent",
-          "instruction": "Produce a task spec as structured JSON conforming to the TaskSpec schema defined in\n`flows/coding/frame/define-spec/task-spec.schema.ts`:\n\n- goal: a single unambiguous statement of what is true when done, plus explicit non-goals.\n- constraints: non-negotiable decisions, such as a public API shape.\n- scope: the files that may change, and a hard fence of files that must not change.\n- acceptance criteria: machine-checkable conditions, each with how to verify it.\n- evaluation: the build/test commands that determine done, plus any manual checks.\n\nDo not prescribe the implementation approach; leave internal design choices to the\nimplementer. Do not modify files.\n\nWrite the JSON to `task-spec.json`, then verify it before finishing:\n\n    npx tsx flows/coding/frame/define-spec/verify-spec.ts task-spec.json\n\nInclude the task spec as the `output` field of your final result line.",
+          "tiers": [
+            {
+              "kind": "agent",
+              "instruction": "Produce a task spec as structured JSON conforming to the TaskSpec schema defined in\n`flows/coding/frame/define-spec/task-spec.schema.ts`:\n\n- goal: a single unambiguous statement of what is true when done, plus explicit non-goals.\n- constraints: non-negotiable decisions, such as a public API shape.\n- scope: the files that may change, and a hard fence of files that must not change.\n- acceptance criteria: machine-checkable conditions, each with how to verify it.\n- evaluation: the build/test commands that determine done, plus any manual checks.\n\nDo not prescribe the implementation approach; leave internal design choices to the\nimplementer. Do not modify files.\n\nWrite the JSON to `task-spec.json`, then verify it before finishing:\n\n    npx tsx flows/coding/frame/define-spec/verify-spec.ts task-spec.json\n\nInclude the task spec as the `output` field of your final result line."
+            }
+          ],
           "next": "confirm-spec"
         },
         {
           "id": "confirm-spec",
-          "type": "human",
-          "assignee": "Alice",
-          "prompt": "Review each acceptance criterion in the task spec and confirm, one by one, whether it is\nsatisfied with concrete evidence. The change is ready to proceed only when every\ncriterion is verified with evidence; otherwise send it back for rework.",
+          "tiers": [
+            {
+              "kind": "agent",
+              "instruction": "Review the task spec produced by `define-spec` (available in the upstream outputs) against\nthe contract a task spec must satisfy:\n\n- goal: a single unambiguous statement of what is true when done, plus explicit non-goals.\n- constraints: non-negotiable decisions, such as a public API shape.\n- scope: the files that may change, and a hard fence of files that must not change.\n- acceptance criteria: machine-checkable conditions, each with how to verify it.\n- evaluation: the build/test commands that determine done, plus any manual checks.\n\nDo not modify files. Produce a verdict: the spec is `ready` to proceed, or needs `rework`\n(with concrete feedback about what is missing or unverifiable). Report a `confidence`\nbetween 0 and 1 for your verdict — a lower confidence means a human reviewer must confirm.\n\nPrint one final JSON line:\n\n{\"outcome\":\"succeeded\",\"label\":\"ready\",\"confidence\":0.9}\n\nor\n\n{\"outcome\":\"succeeded\",\"label\":\"rework\",\"output\":{\"feedback\":\"<what must change>\"},\"confidence\":0.9}"
+            },
+            {
+              "kind": "human",
+              "assignee": "Alice",
+              "prompt": "Review each acceptance criterion in the task spec and confirm, one by one, whether it is\nsatisfied with concrete evidence. The change is ready to proceed only when every\ncriterion is verified with evidence; otherwise send it back for rework."
+            }
+          ],
+          "annotations": {
+            "risk": "structural",
+            "domain": "spec"
+          },
           "next": {
             "ready": "create-ticket",
             "rework": "define-spec"
@@ -24,8 +40,12 @@
         },
         {
           "id": "create-ticket",
-          "type": "script",
-          "run": "node flows/coding/frame/create-ticket/create-ticket.mjs",
+          "tiers": [
+            {
+              "kind": "script",
+              "run": "node flows/coding/frame/create-ticket/create-ticket.mjs"
+            }
+          ],
           "next": "prepare-branch"
         }
       ]
@@ -36,14 +56,22 @@
       "nodes": [
         {
           "id": "prepare-branch",
-          "type": "script",
-          "run": "node flows/coding/make/prepare-branch/prepare-branch.mjs",
+          "tiers": [
+            {
+              "kind": "script",
+              "run": "node flows/coding/make/prepare-branch/prepare-branch.mjs"
+            }
+          ],
           "next": "implement"
         },
         {
           "id": "implement",
-          "type": "agent",
-          "instruction": "The task spec lives in a GitHub issue created by the Frame stage. The upstream\n`create-ticket` output (in the flow context) contains the issue number. Fetch the spec:\n\n    node flows/coding/make/implement/read-ticket.mjs <issue-number>\n\nThis prints the task spec (goal, constraints, scope, acceptance criteria, evaluation).\nImplement within the scope, satisfying every acceptance criterion, and run the\nevaluation commands to verify your work. Do not change files outside the scope fence.\n\nAfter implementing, produce an implementation report as structured JSON conforming to\nthe schema in `flows/coding/make/implement/implementation-report.schema.ts`:\n\n- summary: what changed and why.\n- filesChanged: the files you modified.\n- criteria: one entry per acceptance criterion — whether it is satisfied and the\n  concrete evidence for it.\n- evaluation: each command you ran, whether it passed, and the tail of its output.\n\nWrite the JSON to `implementation-report.json`, then verify it before finishing:\n\n    npx tsx flows/coding/make/implement/verify-report.ts implementation-report.json\n\nInclude the report as the `output` field of your final result line.",
+          "tiers": [
+            {
+              "kind": "agent",
+              "instruction": "The task spec lives in a GitHub issue created by the Frame stage. The upstream\n`create-ticket` output (in the flow context) contains the issue number. Fetch the spec:\n\n    node flows/coding/make/implement/read-ticket.mjs <issue-number>\n\nThis prints the task spec (goal, constraints, scope, acceptance criteria, evaluation).\nImplement within the scope, satisfying every acceptance criterion, and run the\nevaluation commands to verify your work. Do not change files outside the scope fence.\n\nIf this is a rework — the upstream outputs contain a prior `confirm-verify` or\n`pr-review` output with a `rework` label and `feedback` — read that feedback and address\nit explicitly in addition to the task spec. Prefer fixing the flagged issues over\nstarting over.\n\nAfter implementing, produce an implementation report as structured JSON conforming to\nthe schema in `flows/coding/make/implement/implementation-report.schema.ts`:\n\n- summary: what changed and why.\n- filesChanged: the files you modified.\n- criteria: one entry per acceptance criterion — whether it is satisfied and the\n  concrete evidence for it.\n- evaluation: each command you ran, whether it passed, and the tail of its output.\n\nWrite the JSON to `implementation-report.json`, then verify it before finishing:\n\n    npx tsx flows/coding/make/implement/verify-report.ts implementation-report.json\n\nInclude the report as the `output` field of your final result line."
+            }
+          ],
           "next": "verify"
         }
       ]
@@ -54,15 +82,30 @@
       "nodes": [
         {
           "id": "verify",
-          "type": "script",
-          "run": "bash flows/coding/verify/verify/verify.sh",
+          "tiers": [
+            {
+              "kind": "script",
+              "run": "bash flows/coding/verify/verify/verify.sh"
+            }
+          ],
           "next": "confirm-verify"
         },
         {
           "id": "confirm-verify",
-          "type": "human",
-          "assignee": "Marcus",
-          "prompt": "Review the build and test results. Is this change ready to be committed and opened as a\npull request, or does it need rework?",
+          "tiers": [
+            {
+              "kind": "agent",
+              "instruction": "Review the build and test results from the upstream `verify` output. Decide whether the\nchange is `ready` to be committed and opened as a pull request, or needs `rework` (with\nconcrete feedback about what failed or what still needs attention). Report a `confidence`\nbetween 0 and 1 for your verdict — a lower confidence means a human reviewer must confirm.\n\nPrint one final JSON line:\n\n{\"outcome\":\"succeeded\",\"label\":\"ready\",\"confidence\":0.9}\n\nor\n\n{\"outcome\":\"succeeded\",\"label\":\"rework\",\"output\":{\"feedback\":\"<what must change>\"},\"confidence\":0.9}"
+            },
+            {
+              "kind": "human",
+              "assignee": "Marcus",
+              "prompt": "Review the build and test results. Is this change ready to be committed and opened as a\npull request, or does it need rework?"
+            }
+          ],
+          "annotations": {
+            "domain": "coding"
+          },
           "next": {
             "ready": "commit-and-pr",
             "rework": "implement"
@@ -76,15 +119,31 @@
       "nodes": [
         {
           "id": "commit-and-pr",
-          "type": "script",
-          "run": "node flows/coding/deliver/commit-and-pr/commit-and-pr.mjs",
+          "tiers": [
+            {
+              "kind": "script",
+              "run": "node flows/coding/deliver/commit-and-pr/commit-and-pr.mjs"
+            }
+          ],
           "next": "pr-review"
         },
         {
           "id": "pr-review",
-          "type": "human",
-          "assignee": "Alice",
-          "prompt": "Review the pull request (its number and url are in the upstream commit-and-pr output).\nApprove it for merge, or send it back for rework?",
+          "tiers": [
+            {
+              "kind": "agent",
+              "instruction": "Review the pull request (its number and url are in the upstream `commit-and-pr` output).\nDecide whether it is `approved` for merge, or needs `rework` (with concrete feedback about\nwhat must change before merging). Report a `confidence` between 0 and 1 for your verdict —\na lower confidence means a human reviewer must confirm.\n\nPrint one final JSON line:\n\n{\"outcome\":\"succeeded\",\"label\":\"approved\",\"confidence\":0.9}\n\nor\n\n{\"outcome\":\"succeeded\",\"label\":\"rework\",\"output\":{\"feedback\":\"<what must change>\"},\"confidence\":0.9}"
+            },
+            {
+              "kind": "human",
+              "assignee": "Alice",
+              "prompt": "Review the pull request (its number and url are in the upstream commit-and-pr output).\nApprove it for merge, or send it back for rework?"
+            }
+          ],
+          "annotations": {
+            "risk": "structural",
+            "domain": "coding"
+          },
           "next": {
             "approved": "merge",
             "rework": "implement"
@@ -98,8 +157,12 @@
       "nodes": [
         {
           "id": "merge",
-          "type": "script",
-          "run": "gh pr merge --squash"
+          "tiers": [
+            {
+              "kind": "script",
+              "run": "gh pr merge --squash"
+            }
+          ]
         }
       ]
     }
