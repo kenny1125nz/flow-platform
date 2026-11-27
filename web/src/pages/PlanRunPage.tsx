@@ -30,7 +30,7 @@ export function PlanRunPage() {
   if (detail.kind !== 'plan') {
     return (
       <div className="board-loading muted">
-        This run is a flow instance. <Link to={`/runs/${detail.id}`}>Open it on the board</Link>.
+        This run is a flow instance. <Link to={`/runs/${detail.id}`}>Open it in Runlets</Link>.
       </div>
     );
   }
@@ -38,7 +38,7 @@ export function PlanRunPage() {
   return (
     <div className="page">
       <div className="breadcrumb">
-        <Link to="/">← Board</Link>
+        <Link to="/">← Runlets</Link>
       </div>
       <header className="page-header row-between">
         <div>
